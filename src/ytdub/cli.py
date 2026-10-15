@@ -16,7 +16,7 @@ from .youtube import build_format, fetch_info, group_dubs, group_qualities
 
 HELP_NOTE = (
     "حمّل فيديوهات يوتيوب بالدبلجة والجودة التي تختارها.\n\n"
-    "استخدم الأداة بمسؤولية وللمحتوى المسموح فقط (ملكك / Creative Commons / مسموح بتنزيله)."
+    "⚠️ تنبيه: المطوّر غير مسؤول عن أي استخدام سيئ للأداة."
 )
 
 
