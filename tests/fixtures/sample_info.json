@@ -1,0 +1,12 @@
+{
+  "id": "demo123",
+  "title": "Demo",
+  "formats": [
+    {"format_id": "v1080", "vcodec": "avc1.640028", "acodec": "none", "height": 1080, "fps": 30, "tbr": 3000, "filesize": 380000000, "ext": "mp4"},
+    {"format_id": "v720", "vcodec": "avc1.64001f", "acodec": "none", "height": 720, "fps": 30, "tbr": 1500, "filesize": 150000000, "ext": "mp4"},
+    {"format_id": "v2160", "vcodec": "av01.0.08M.08", "acodec": "none", "height": 2160, "fps": 60, "tbr": 12000, "filesize": 1200000000, "ext": "mp4"},
+    {"format_id": "a-ar", "vcodec": "none", "acodec": "mp4a.40.2", "language": "ar", "format_note": "original", "abr": 128, "ext": "m4a"},
+    {"format_id": "a-en", "vcodec": "none", "acodec": "mp4a.40.2", "language": "en", "format_note": "dubbed", "abr": 128, "ext": "m4a"},
+    {"format_id": "a-es-auto", "vcodec": "none", "acodec": "mp4a.40.2", "language": "es", "format_note": "dubbed-auto", "abr": 64, "ext": "m4a"}
+  ]
+}
