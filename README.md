@@ -7,7 +7,7 @@
 
 > **A Python CLI that downloads a YouTube video with the dubbing language and quality you pick from two tidy tables.**
 
-[What It Does](#what-it-does) · [Quick Start](#quick-start) · [Usage](#usage) · [Architecture](#architecture) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing)
+[What It Does](#what-it-does) · [Quick Start](#quick-start) · [Usage](#usage) · [Configuration](#configuration) · [Architecture](#architecture) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing)
 
 ---
 
@@ -31,6 +31,10 @@ It is for anyone who wants a specific episode or film in a specific language and
 - 🔹 **Audio only** — `--audio-only` for when you just want the dub
 - 🔹 **Live progress bar** — percent, size, speed, and ETA via `rich`
 - 🔹 **Smart error handling** — Arabic messages with fixes (missing ffmpeg / YouTube throttling / fallback client)
+- 🔹 **Resume + retry** — failed downloads resume from `.part` where they stopped, with configurable attempts and wait time
+- 🔹 **Self-updating** — checks PyPI on every run and upgrades `yt-dlp` and friends (silently offline-safe)
+- 🔹 **First-run setup** — one-time questions saved to `config.json` (retries, auto-update, save folder)
+- 🔹 **Download history** — a local SQLite log of every URL: succeeded / failed / resumed / retried (`--history`)
 
 ---
 
@@ -39,8 +43,9 @@ It is for anyone who wants a specific episode or film in a specific language and
 The `youtube.py` layer is isolated and holds all `yt-dlp` logic, `downloader.py` handles downloading, and `ui.py` is display-only — no rendering logic inside the downloader.
 
 ```
-URL → fetch_info (no download) → dubbing + quality tables
-    → build_format (exact -f string) → download + ffmpeg merge → mp4/mkv file
+config → update check → URL → fetch_info (no download) → dubbing + quality tables
+    → build_format (exact -f string) → download with resume/retries + ffmpeg merge
+    → mp4/mkv file + history row (success / failed / resumed / retried)
 ```
 
 ### Layer Responsibilities
@@ -50,7 +55,10 @@ URL → fetch_info (no download) → dubbing + quality tables
 | Commands | Main flow and options | `cli.py`, `__main__.py` |
 | Extraction | Fetching data, grouping dubs, building formats | `youtube.py`, `models.py` |
 | Display | Tables, prompts, progress bar | `ui.py` |
-| Download | `ffmpeg` check and downloading via `yt-dlp` | `downloader.py` |
+| Download | `ffmpeg` check, retry loop, resume via `yt-dlp` | `downloader.py` |
+| Settings | First-run wizard, `config.json` load/save | `config.py` |
+| Updates | PyPI version check + self-upgrade | `updater.py` |
+| History | SQLite log of every download + statuses | `store.py` |
 | Helpers | URL validation, size formatting, language names | `utils.py` |
 
 ---
@@ -66,13 +74,21 @@ YouTube_Download_Dubbing/
 │   ├── youtube.py          # yt-dlp wrapper (isolated)
 │   ├── models.py           # DubTrack / Quality / VideoInfo
 │   ├── ui.py               # rich tables and prompts
-│   ├── downloader.py       # Download + ffmpeg check
+│   ├── downloader.py       # Download + retry loop + ffmpeg check
+│   ├── config.py           # First-run wizard + config.json
+│   ├── updater.py          # PyPI check + self-upgrade
+│   ├── store.py            # SQLite download history
 │   └── utils.py            # URL validation and language names
 ├── tests/                  # Offline tests
+│   ├── test_lang_grouping.py
+│   ├── test_format_builder.py
+│   ├── test_config_store.py
 │   └── fixtures/sample_info.json
 ├── docs/                   # Full research (8 files, Arabic)
 ├── pyproject.toml
-└── README.md
+├── README.md
+├── CONTRIBUTING.md
+└── LICENSE
 ```
 
 ---
@@ -129,7 +145,42 @@ ytdub --url "URL" --keep-all-dubs
 
 # When dubs are missing: try a fallback client
 ytdub --url "URL" --player-client android --verbose
+
+# Show download history (succeeded / failed / resumed / retried)
+ytdub --history
+
+# Show config file and its location
+ytdub --show-config
 ```
+
+---
+
+## Configuration
+
+On the first interactive run, `ytdub` asks a few one-time questions and saves them to `~/.config/ytdub/config.json` (or `%APPDATA%\ytdub` on Windows). With `--yes` the defaults are written silently.
+
+| Key | Default | Description |
+|---|---|---|
+| `resume_on_failure` | `true` | Retry failed downloads, resuming from `.part` |
+| `max_retries` | `5` | Attempts after the first try (1–20) |
+| `retry_wait_seconds` | `5` | Wait between attempts (1–120s) |
+| `concurrent_fragments` | `4` | Parallel fragment downloads |
+| `socket_timeout` | `30` | Network timeout in seconds |
+| `auto_update_check` | `true` | Check PyPI for tool updates on every run |
+| `auto_update_install` | `true` | Install updates automatically (`false` = notify only) |
+| `default_lang` | `null` | Preset dub (e.g. `"ar"`), `null` = ask |
+| `default_height` | `null` | Preset resolution (e.g. `1080`), `null` = ask |
+| `output_dir` | `"downloads"` | Default save folder |
+| `player_client` | `null` | Fallback YouTube client, `null` = automatic |
+
+Manage it with:
+
+```bash
+ytdub --show-config     # print values + file path
+ytdub --reset-config    # re-run the first-run wizard
+```
+
+Download history lives beside it in `history.db` (SQLite) — view with `ytdub --history`.
 
 ### Options Reference
 
@@ -145,6 +196,10 @@ ytdub --url "URL" --player-client android --verbose
 | `--player-client` | Fallback client (`android`/`mweb`/`ios`/`web_safari`) |
 | `--cookies-from-browser chrome` | Fix throttling issues (optional) |
 | `--cookies FILE` | Netscape cookies file (optional) |
+| `--history` | Show download history, then exit |
+| `--history-limit N` | History rows to show (default 20) |
+| `--show-config` | Show settings + file path, then exit |
+| `--reset-config` | Re-run the first-run wizard, then exit |
 | `--verbose` | Technical details for errors |
 
 ---
@@ -171,6 +226,7 @@ PYTHONPATH=src python -m ytdub --help
 | `PO Token required` | YouTube humanity check | Update `yt-dlp` to nightly, install `deno`, then `--player-client android` |
 | `DRM protected` | Encrypted content | Cannot be downloaded — by design |
 | Only one dub | Video has a single original language | Normal behavior — the step is skipped |
+| `Failed after N attempts` | Unstable network, retries exhausted | Raise `max_retries`/`retry_wait_seconds` in config, or re-run later — it resumes from `.part` |
 
 ---
 

@@ -1,6 +1,6 @@
 [project]
 name = "ytdub"
-version = "1.0.0"
+version = "1.1.0"
 description = "CLI لتحميل فيديوهات يوتيوب مع الدبلجة والجودة المختارة"
 readme = "README.md"
 requires-python = ">=3.10"
