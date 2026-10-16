@@ -33,4 +33,11 @@ PYTHONPATH=src python -m ytdub --help       # smoke check without install
 - Missing dubs often means wrong player client, not no dubs: `cli.py` retries with `--player-client android`. `deno`/`node` + nightly `yt-dlp` needed for PO-Token/SABR cases.
 - Stack is fixed (`yt-dlp`, `rich`, `click`, `questionary`) — don't add deps without PR justification. Full rationale lives in `docs/` (8 Arabic research files).
 - User-facing messages are concise Arabic; technical detail goes behind `--verbose` only.
-- Never bypass DRM/age-gates; never commit cookies, credentials, `.env`, `downloads/`, or media files (`*.mp4/*.mkv/*.m4a/*.mp3` — see `.gitignore`).
+ - Never bypass DRM/age-gates; never commit cookies, credentials, `.env`, `downloads/`, or media files (`*.mp4/*.mkv/*.m4a/*.mp3` — see `.gitignore`).
+
+<!-- architecture-pointer -->
+## Project architecture
+For project structure, layers, dependencies, data flow, or details
+beyond this file, read `ARCHITECTURE.md` before exploring the codebase.
+Do not scan the whole project when that file answers the question.
+<!-- /architecture-pointer -->
