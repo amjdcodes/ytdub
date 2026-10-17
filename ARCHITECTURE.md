@@ -10,7 +10,7 @@ Entrypoints are the `ytdub` console script (`ytdub.cli:main` in `pyproject.toml`
 ## 2. Folder structure
 
 ```
-YouTube_Download_Dubbing/
+ytdub/
 ├── pyproject.toml              # package `ytdub`, entry `ytdub.cli:main`, deps (yt-dlp/rich/click/questionary)
 ├── src/ytdub/
 │   ├── __main__.py             # `python -m ytdub` shim → cli.main

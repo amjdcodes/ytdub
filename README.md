@@ -77,7 +77,7 @@ summary, while `--retry` / `--retry-last` reload a stored row and replay it non-
 ## Project Structure
 
 ```
-YouTube_Download_Dubbing/
+ytdub/
 ├── src/ytdub/              # Source code
 │   ├── __init__.py
 │   ├── __main__.py         # Entry point: python -m ytdub
