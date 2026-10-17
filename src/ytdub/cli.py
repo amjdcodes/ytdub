@@ -19,15 +19,20 @@ from . import store
 from . import updater
 from .downloader import download, ensure_ffmpeg
 from .i18n import set_lang, t
+from .themes import THEME_NAMES, theme_label
 from .ui import (
     ask_dub,
     ask_quality,
+    ask_theme,
     confirm_overwrite,
     console,
     make_progress,
+    set_theme,
+    show_banner,
     show_dubs_table,
     show_estimate,
     show_qualities_table,
+    show_theme_preview,
     show_video_info,
 )
 from .utils import existing_output, is_youtube_url, read_batch_file, retry_selection
@@ -62,32 +67,54 @@ HELP_NOTE = (
 @click.option("--overwrite", is_flag=True, help="إعادة التنزيل حتى لو كان الملف موجودًا / Redownload even if the file exists.")
 @click.option("--show-config", is_flag=True, help="عرض الإعدادات ومسارها ثم خروج / Show settings and path, then exit.")
 @click.option("--ui-lang", type=click.Choice(["ar", "en"]), default=None, help="تغيير لغة الواجهة وحفظها ثم خروج / Set and save the interface language, then exit.")
+@click.option("--theme", "theme_name", type=click.Choice(list(THEME_NAMES)), default=None, help="تعيين تصميم الواجهة وحفظه: classic/midnight/sand / Set and save the interface theme.")
+@click.option("--theme-menu", is_flag=True, help="قائمة تفاعلية لمعاينة واختيار التصميم / Interactive theme picker with live preview.")
 @click.option("--reset-config", is_flag=True, help="إعادة معالج الإعداد من جديد / Re-run the setup wizard.")
 @click.option("--verbose", is_flag=True, help="إظهار تفاصيل تقنية للأخطاء / Technical error details.")
 @click.version_option(__version__, "--version", "-V")
-def main(url, url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, history, history_limit, retry_id, retry_last, batch_file, overwrite, show_config, ui_lang, reset_config, verbose):
+def main(url, url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, history, history_limit, retry_id, retry_last, batch_file, overwrite, show_config, ui_lang, theme_name, theme_menu, reset_config, verbose):
     if verbose:
         rich_traceback(show_locals=False)
     try:
+        if theme_name:
+            cfg, _ = app_config.ensure(console, non_interactive=True)
+            chosen = set_theme(theme_name)
+            _save_theme_choice(cfg, chosen)
+            keeps_going = any((url, url_opt, batch_file, retry_id is not None, retry_last, history, show_config, ui_lang, theme_menu, reset_config))
+            if not keeps_going:
+                show_theme_preview()
+                return
+        if theme_menu:
+            cfg, _ = app_config.ensure(console, non_interactive=True)
+            set_theme(cfg.get("ui_theme"))
+            chosen = ask_theme()
+            if chosen:
+                _save_theme_choice(cfg, chosen)
+                show_theme_preview()
+            return
         if history:
-            app_config.ensure(console, non_interactive=True)
+            cfg, _ = app_config.ensure(console, non_interactive=True)
+            set_theme(cfg.get("ui_theme"))
             _show_history(history_limit)
             return
         if show_config:
             cfg, _ = app_config.ensure(console, non_interactive=True)
-            console.print(f"[bold]{t('config.header', path=app_config.config_path())}[/bold]")
+            set_theme(cfg.get("ui_theme"))
+            console.print(f"[bold]{t('config.header', path=escape(app_config.config_path()))}[/bold]")
             for k, v in cfg.items():
-                console.print(f"  {k} = {v}")
+                console.print(f"  [text]{k}[/text] = [accent]{v}[/accent]")
             return
         if ui_lang:
             cfg, _ = app_config.load()
             cfg["ui_lang"] = ui_lang
             path = app_config.save(cfg)
             set_lang(ui_lang)
-            console.print(t("config.ui_lang_set", path=path))
+            set_theme(cfg.get("ui_theme"))
+            console.print(t("config.ui_lang_set", path=escape(path)))
             return
         if reset_config:
-            app_config.first_run_wizard(console)
+            cfg = app_config.first_run_wizard(console)
+            set_theme(cfg.get("ui_theme"))
             return
         if retry_id is not None or retry_last:
             _retry_from_history(retry_id, retry_last, output_dir, player_client, prefer_av1, cookies_file, cookies_from_browser, verbose, overwrite)
@@ -97,11 +124,18 @@ def main(url, url_opt, lang, height, yes, output_dir, player_client, keep_all_du
             return
         _run(url or url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite)
     except RuntimeError as e:
-        console.print(f"[red]❌ {e}[/red]")
+        console.print(f"[error]❌ {e}[/error]")
         sys.exit(1)
     except KeyboardInterrupt:
-        console.print(f"\n[yellow]{t('error.operation_cancelled')}[/yellow]")
+        console.print(f"\n[warning]{t('error.operation_cancelled')}[/warning]")
         sys.exit(130)
+
+
+def _save_theme_choice(cfg, chosen: str) -> str:
+    cfg["ui_theme"] = chosen
+    path = app_config.save(cfg)
+    console.print(t("theme.saved", name=f"[bold]{theme_label(chosen)}[/bold]", path=escape(path)))
+    return path
 
 
 def _retry_from_history(retry_id, retry_last, output_dir, player_client, prefer_av1, cookies_file, cookies_from_browser, verbose, overwrite) -> None:
@@ -125,7 +159,7 @@ def _run_batch(batch_file, lang, height, yes, output_dir, player_client, keep_al
     height = height if height is not None else cfg.get("default_height")
     player_client = player_client or cfg.get("player_client")
     ensure_ffmpeg(audio_only=bool(audio_only))
-    console.print(f"[bold cyan]{t('batch.started', count=len(urls), file=batch_file)}[/bold cyan]")
+    console.print(f"[heading]{t('batch.started', count=len(urls), file=batch_file)}[/heading]")
 
     ok = failed = 0
     for i, u in enumerate(urls, 1):
@@ -135,7 +169,7 @@ def _run_batch(batch_file, lang, height, yes, output_dir, player_client, keep_al
             ok += 1
         except RuntimeError as e:
             failed += 1
-            console.print(f"[red]{t('batch.item_failed', err=e)}[/red]")
+            console.print(f"[error]{t('batch.item_failed', err=e)}[/error]")
     console.print(f"[bold]{t('batch.summary', ok=ok, failed=failed, total=len(urls))}[/bold]")
     if failed:
         sys.exit(1)
@@ -144,7 +178,7 @@ def _run_batch(batch_file, lang, height, yes, output_dir, player_client, keep_al
 def _show_history(limit: int) -> None:
     rows = store.recent(limit)
     if not rows:
-        console.print(f"[yellow]{t('history.empty')}[/yellow]")
+        console.print(f"[warning]{t('history.empty')}[/warning]")
         return
     t_obj = Table(title=t("history.title", count=len(rows)))
     t_obj.add_column(t("history.col_id"), justify="center")
@@ -166,8 +200,11 @@ def _show_history(limit: int) -> None:
 
 
 def _setup(yes, output_dir):
-    """إعداد مشترك: الإعدادات + فحص التحديثات (بختم زمني) + مجلد الإخراج."""
+    """إعداد مشترك: التصميم + الإعدادات + فحص التحديثات (بختم زمني) + مجلد الإخراج."""
     cfg, cfg_path = app_config.ensure(console, non_interactive=bool(yes))
+    set_theme(cfg.get("ui_theme"))
+    if not yes:
+        show_banner()
     updater.run_startup_check(console, cfg, state_dir=os.path.dirname(cfg_path))
     output_dir = output_dir or cfg.get("output_dir") or "downloads"
     return cfg, output_dir
@@ -209,7 +246,7 @@ def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_al
                 if len(alt_dubs) > len(dubs):
                     info, dubs = alt, alt_dubs
                     quals = group_qualities(alt.formats)
-                    console.print(f"[yellow]{t('scan.android_extra')}[/yellow]")
+                    console.print(f"[warning]{t('scan.android_extra')}[/warning]")
             except Exception:
                 pass
 
@@ -262,7 +299,7 @@ def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_al
     outtmpl = os.path.join(output_dir, "%(title).150B [%(id)s].%(ext)s")
 
     if verbose:
-        console.print(f"[dim]format={fmt} container={container} sort={extra.get('format_sort')}[/dim]")
+        console.print(f"[muted]format={fmt} container={container} sort={extra.get('format_sort')}[/muted]")
 
     show_estimate(estimate_size(dub, quality, keep_all_dubs=keep_all_dubs, audio_only=want_audio_only), container)
 
@@ -276,7 +313,7 @@ def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_al
                 lang=(dub.lang if dub else "all"), height=(quality.height if quality else None),
                 container=container, filepath=existing,
             )
-            console.print(f"[yellow]{t('download.skipped', path=escape(existing))}[/yellow]")
+            console.print(f"[warning]{t('download.skipped', path=escape(existing))}[/warning]")
             return
 
     # 8) سجل DB + التنزيل
@@ -318,7 +355,7 @@ def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_al
         if ok:
             return
         store.record_attempt(row_id, store.STATUS_RETRIED, error=error)
-        console.print(f"[yellow]{t('download.retry_warning', attempt=attempt_no, wait=retry_wait)}[/yellow]")
+        console.print(f"[warning]{t('download.retry_warning', attempt=attempt_no, wait=retry_wait)}[/warning]")
 
     try:
         with progress:
@@ -339,7 +376,7 @@ def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_al
     qtxt = f"{quality.height}p" if quality else (t("value.audio_only") if want_audio_only else t("value.best"))
     ltxt = dub.display if dub else t("value.all_dubs")
     tags = escape(f"[{ltxt}][{qtxt}][{container}]")
-    console.print(f"[green]{t('download.done', attempts=attempts, dir=escape(output_dir), file=escape(fname), tags=tags)}[/green]")
+    console.print(f"[success]{t('download.done', attempts=attempts, dir=escape(output_dir), file=escape(fname), tags=tags)}[/success]")
 
 
 if __name__ == "__main__":

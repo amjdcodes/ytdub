@@ -102,13 +102,30 @@ def test_first_run_wizard_starts_with_language_and_saves_it(tmp_path, monkeypatc
     cfg_dir = tmp_path / "ytdub"
     monkeypatch.setattr(config, "app_dir", lambda: str(cfg_dir))
 
-    con = FakeConsole(["2", "y", "3", "2", "n", "mydl"])
+    con = FakeConsole(["2", "2", "y", "3", "2", "n", "mydl"])
     cfg = config.first_run_wizard(con)
 
     assert cfg["ui_lang"] == "en"
+    assert cfg["ui_theme"] == "midnight"
     assert cfg["max_retries"] == 3 and cfg["retry_wait_seconds"] == 2
     assert cfg["auto_update_check"] is False
     assert cfg["output_dir"] == "mydl"
     assert i18n.get_lang() == "en"
     saved = json.loads((cfg_dir / "config.json").read_text(encoding="utf-8"))
     assert saved["ui_lang"] == "en"
+
+
+def test_existing_config_missing_theme_uses_default_without_prompt(tmp_path, monkeypatch):
+    cfg_dir = tmp_path / "ytdub"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.json").write_text(json.dumps({"ui_lang": "en", "max_retries": 2}), encoding="utf-8")
+    monkeypatch.setattr(config, "app_dir", lambda: str(cfg_dir))
+
+    con = FakeConsole([])
+    cfg, _ = config.ensure(con, non_interactive=False)
+
+    assert cfg["ui_theme"] == config.DEFAULTS["ui_theme"] == "classic"
+    assert cfg["max_retries"] == 2
+    assert con.prompts == []
+    saved = json.loads((cfg_dir / "config.json").read_text(encoding="utf-8"))
+    assert saved.get("ui_theme", "classic") == "classic" and saved["max_retries"] == 2

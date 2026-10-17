@@ -5,72 +5,139 @@
 
 # ytdub
 
-> **A Python CLI that downloads a YouTube video with the dubbing language and quality you pick from two tidy tables.**
+> **A bilingual terminal app that downloads a YouTube video with the dub language and quality you choose.**
 
-[What It Does](#what-it-does) · [Quick Start](#quick-start) · [Usage](#usage) · [Configuration](#configuration) · [Architecture](#architecture) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing)
+[What It Does](#what-it-does) · [Features](#features) · [Themes & Responsive UI](#themes-and-responsive-ui) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Usage](#usage) · [Configuration](#configuration) · [Testing](#testing-and-quality) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing)
 
 ---
 
 ## What It Does
 
-The dubbing problem on YouTube: a single video can carry several audio tracks (Arabic, English, Spanish...), and ordinary downloaders either ignore them or grab only the default language.
+YouTube often ships one video with several audio tracks: the original language plus
+Arabic, English, Spanish, and other dubs. Ordinary downloaders either ignore those tracks
+or keep only the default one.
 
-`ytdub` solves this in four steps: you paste the URL, it reads every audio track via `yt-dlp` and shows a dubbing table, then shows a quality table (720p / 1080p / 4K), then merges your choice into one file via `ffmpeg`.
+`ytdub` makes the choice explicit. You paste a URL, it reads every audio and video stream
+through `yt-dlp`, and it shows two clean tables: available dubs and available qualities.
+You pick a language and a resolution; `yt-dlp` downloads the matching streams and `ffmpeg`
+merges them into one playable file.
 
-It is for anyone who wants a specific episode or film in a specific language and quality without guessing obscure `format_id` numbers. What sets it apart: picking dubs by language code (`ar`/`en`/`es`) instead of cryptic IDs, a fully bilingual Arabic/English interface (`ui_lang`), a size estimate before you commit, a non-interactive mode plus `--batch` for automation, replayable history with `--retry`, already-downloaded files skipped by default, and error messages that point you to the fix.
+It is built for people who want a specific episode or film in a specific language without
+decoding cryptic `format_id` values. You can select dubs by language code, see an estimated
+file size before downloading, run fully non-interactively, process a batch file, replay a
+failed download from history, and skip files that already exist. The interface is available
+in Arabic and English, with three visual themes that adapt to the terminal width.
 
 ---
 
 ## Features
 
-- 🔹 **Arabic + English UI** — pick your interface language on first run; saved as `ui_lang` and switchable with `--ui-lang`
-- 🔹 **Dubbing table** — every available language with its type (original / dubbed / auto 🤖) and audio bitrate
-- 🔹 **Quality table** — every resolution with codec, approximate size, and a "recommended ✅" mark for best compatibility
-- 🔹 **Estimated size** — a combined video + dub size estimate before anything is downloaded
-- 🔹 **Interactive selection** — arrow-key navigation (questionary) with smart Enter defaults
-- 🔹 **Non-interactive mode** — `--url --lang --height --yes` for scripts and automation
-- 🔹 **Batch mode** — `--batch urls.txt` downloads a whole list, one URL per line, with a success/failure summary
-- 🔹 **Retry from history** — `--retry ID` / `--retry-last` re-runs a failed row, reusing its language and quality
-- 🔹 **Skip existing** — already-downloaded files are detected by video ID and skipped (override with `--overwrite`)
-- 🔹 **All dubs in one file** — `--keep-all-dubs` keeps every track in a single `mkv`
-- 🔹 **Audio only** — `--audio-only` for when you just want the dub
-- 🔹 **Live progress bar** — percent, size, speed, and ETA via `rich`
-- 🔹 **Smart error handling** — Arabic messages with fixes (missing ffmpeg / YouTube throttling / fallback client)
-- 🔹 **Resume + retry** — failed downloads resume from `.part` where they stopped, with configurable attempts and wait time
-- 🔹 **Throttled update check** — checks PyPI at most once per interval (default 24h) and upgrades `yt-dlp` and friends (silently offline-safe)
-- 🔹 **First-run setup** — one-time questions saved to `config.json` (retries, auto-update, save folder)
-- 🔹 **Download history** — a local SQLite log of every URL: succeeded / failed / resumed / retried / skipped (`--history`)
+- **Arabic and English UI** — choose the interface language on first run; saved as `ui_lang` and switchable with `--ui-lang`.
+- **Three interface themes** — Classic (adaptive terminal colors), Midnight (soft blue for dark terminals), and Sand (warm tones for light terminals). Saved as `ui_theme`, switchable with `--theme`, or previewed interactively with `--theme-menu`.
+- **Responsive layout** — tables and panels follow the terminal width (`compact` / `regular` / `wide`), drop secondary columns when space is tight, and cap at a comfortable reading width.
+- **Eye-friendly design** — semantic theme styles, soft accents, and contrast tuned for each background; no raw ANSI colors scattered through the flow.
+- **Dubbing table** — every audio language with its type (original / dubbed / auto-dub), code, and bitrate.
+- **Quality table** — every resolution with codec, approximate size, and a compatibility note.
+- **Size estimate** — combined video + selected dub size before anything is downloaded.
+- **Interactive selection** — arrow-key navigation through `questionary` with smart defaults.
+- **Non-interactive mode** — `--url --lang --height --yes` for scripts and automation.
+- **Batch mode** — `--batch urls.txt` downloads a list with a final success/failure summary.
+- **Retry from history** — `--retry ID` and `--retry-last` replay a failed row with its stored settings.
+- **Skip existing** — files are matched by video ID and skipped by default; `--overwrite` forces a download.
+- **All dubs in one file** — `--keep-all-dubs` keeps every audio track in a single `mkv`.
+- **Audio only** — `--audio-only` downloads just the selected dub.
+- **Live progress** — percentage, downloaded size, speed, and ETA through `rich`.
+- **Resume and retry** — interrupted downloads resume from `.part` with configurable attempts and wait time.
+- **Throttled update check** — checks PyPI at most once per interval and upgrades the tool stack, silently failing offline.
+- **Download history** — a local SQLite log of every URL with statuses: succeeded, failed, resumed, retried, or skipped.
+
+---
+
+## Themes and Responsive UI
+
+The interface ships with three deliberately different designs. Pick the one that matches
+your terminal background and lighting conditions:
+
+| Theme | Best for | Character |
+|---|---|---|
+| `classic` | Any terminal (default) | Adaptive ANSI colors, balanced contrast, closest to a stock CLI |
+| `midnight` | Dark backgrounds | Soft blue and lavender night palette with muted borders |
+| `sand` | Light backgrounds | Warm, low-blue tones designed for daytime comfort |
+
+```bash
+# Apply and persist a theme
+ytdub --theme midnight
+
+# Apply a theme and continue with a download in the same run
+ytdub --theme sand --url "URL" --lang ar --height 1080
+
+# Browse all themes with a live preview
+ytdub --theme-menu
+```
+
+The theme is saved in `config.json` as `ui_theme` and restored on every run. The first-run
+wizard asks for it right after the interface language.
+
+**Responsive behaviour** is computed from the real terminal width:
+
+| Width | Layout | What changes |
+|---|---|---|
+| `< 62` columns | `compact` | Secondary columns are hidden; only the essential dub and quality fields remain |
+| `62–95` columns | `regular` | Core columns stay; FPS, codec, and other optional fields are reduced |
+| `>= 96` columns | `wide` | Full tables, including FPS, codec, and compatibility notes |
+
+Panels and tables stop at `110` columns so long lines stay readable on ultrawide terminals.
+On very narrow screens, the video title moves inside the panel so it wraps instead of being
+cropped. The same rendering functions power real runs and the `--theme-menu` preview, so
+what you see is what you get.
 
 ---
 
 ## Architecture
 
-The `youtube.py` layer is isolated and holds all `yt-dlp` logic, `downloader.py` handles downloading, and `ui.py` is display-only — no rendering logic inside the downloader.
+`yt-dlp` knowledge is isolated in one module, downloading in another, and rendering in a
+third. The CLI only orchestrates. This keeps extraction quirks, network side effects, and
+terminal layout independently testable.
 
 ```
-config → throttled update check → URL → fetch_info (no download) → dubbing + quality tables
-    → estimated size → build_format (exact -f string)
-    → skip if the file already exists (unless --overwrite)
+config + theme + update check
+    → URL → fetch_info (metadata only)
+    → group dubs + qualities → render tables
+    → user picks language + quality
+    → estimate size
+    → build the exact -f format string
+    → skip if the output already exists (unless --overwrite)
     → download with resume/retries + ffmpeg merge
-    → mp4/mkv file + history row (success / failed / resumed / retried / skipped)
+    → mp4/mkv/m4a file + history row
 ```
 
-Batch and retry reuse the same per-URL step: `--batch` runs it for every line and prints a
-summary, while `--retry` / `--retry-last` reload a stored row and replay it non-interactively.
+Batch and retry reuse the same per-URL pipeline: `--batch` runs it for every line and prints
+a summary, while `--retry` / `--retry-last` reload a stored row and replay it
+non-interactively.
 
 ### Layer Responsibilities
 
 | Layer | Responsibility | Components |
 |---|---|---|
-| Commands | Main flow and options | `cli.py`, `__main__.py` |
-| Extraction | Fetching data, grouping dubs, building formats | `youtube.py`, `models.py` |
-| Display | Tables, prompts, progress bar | `ui.py` |
+| Commands | Option parsing, setup, and the per-URL flow | `cli.py`, `__main__.py` |
+| Extraction | Fetching data, grouping dubs/qualities, building formats, estimating size | `youtube.py`, `models.py` |
+| Display | Panels, tables, prompts, progress bar, responsive layout | `ui.py` |
+| Themes | Palettes, aliases, labels, and theme metadata | `themes.py` |
 | Download | `ffmpeg` check, retry loop, resume via `yt-dlp` | `downloader.py` |
 | Settings | First-run wizard, `config.json` load/save | `config.py` |
-| Updates | PyPI version check + self-upgrade | `updater.py` |
-| History | SQLite log of every download + statuses | `store.py` |
-| i18n | Arabic/English message catalog + language switch | `i18n.py` |
-| Helpers | URL validation, size formatting, language names, batch parsing, existing-file detection | `utils.py` |
+| Updates | PyPI version check and self-upgrade | `updater.py` |
+| History | SQLite log of every download and its status | `store.py` |
+| i18n | Arabic/English message catalog and language switch | `i18n.py` |
+| Helpers | URL validation, formatting, language names, batch parsing, existing-file detection | `utils.py` |
+
+### Design Rules
+
+- All `yt-dlp` logic lives in `youtube.py`; no format strings leak into other modules.
+- `downloader.py` reports progress through a callback and never renders.
+- Rendering stays in `ui.py`; colors come only from `themes.py`, and strings come only from `i18n.py`.
+- `config.py`, `store.py`, and `updater.py` are infrastructure with no UI except the setup wizard.
+- Tests run offline against `tests/fixtures/sample_info.json`; live YouTube responses are flaky and throttled.
+- Paths and titles are escaped before printing because they can contain `[<video_id>]`, which `rich` would otherwise parse as markup.
 
 ---
 
@@ -78,27 +145,29 @@ summary, while `--retry` / `--retry-last` reload a stored row and replay it non-
 
 ```
 ytdub/
-├── src/ytdub/              # Source code
-│   ├── __init__.py
-│   ├── __main__.py         # Entry point: python -m ytdub
-│   ├── cli.py              # Commands and interactive flow
-│   ├── youtube.py          # yt-dlp wrapper (isolated)
-│   ├── models.py           # DubTrack / Quality / VideoInfo
-│   ├── ui.py               # rich tables and prompts
-│   ├── downloader.py       # Download + retry loop + ffmpeg check
-│   ├── config.py           # First-run wizard + config.json
-│   ├── updater.py          # PyPI check + self-upgrade
-│   ├── store.py            # SQLite download history
-│   ├── i18n.py             # Arabic/English message catalog
-│   └── utils.py            # URL validation and language names
-├── tests/                  # Offline tests
+├── src/ytdub/                  # Source code
+│   ├── __init__.py             # Version marker
+│   ├── __main__.py             # python -m ytdub entry point
+│   ├── cli.py                  # Click options and orchestration
+│   ├── youtube.py              # yt-dlp extraction and format building
+│   ├── models.py               # DubTrack / Quality / VideoInfo
+│   ├── ui.py                   # Rich tables, prompts, progress, responsive layout
+│   ├── themes.py               # Three semantic palettes
+│   ├── downloader.py           # Download, retry loop, ffmpeg check
+│   ├── config.py               # First-run wizard and config.json
+│   ├── updater.py              # PyPI check and self-upgrade
+│   ├── store.py                # SQLite download history
+│   ├── i18n.py                 # Arabic/English message catalog
+│   └── utils.py                # URL rules, formatting, batch helpers
+├── tests/                      # Offline test suite
 │   ├── test_lang_grouping.py
 │   ├── test_format_builder.py
 │   ├── test_config_store.py
 │   ├── test_i18n.py
+│   ├── test_themes.py
 │   ├── test_utils.py
 │   └── fixtures/sample_info.json
-├── docs/                   # Full research (8 files, Arabic)
+├── docs/                       # Design research (8 files, Arabic)
 ├── pyproject.toml
 ├── README.md
 ├── CONTRIBUTING.md
@@ -111,18 +180,20 @@ ytdub/
 
 ### Prerequisites
 
-- Python 3.10+
-- `ffmpeg` + `ffprobe` (the real binaries — not the PyPI package named `ffmpeg`)
-- `deno` or `node` recommended for full YouTube support (PO Token)
+- Python 3.10 or newer.
+- `ffmpeg` and `ffprobe` as real system binaries. The PyPI package named `ffmpeg` does **not** count.
+- `deno` or `node` recommended for full YouTube support (PO Token and SABR cases).
 
 ### Installation
 
 ```bash
-# 1) ffmpeg (required)
-sudo apt install ffmpeg        # Ubuntu/Debian
+# 1) Install ffmpeg (required)
+sudo apt install ffmpeg        # Ubuntu / Debian
+sudo dnf install ffmpeg        # Fedora
 brew install ffmpeg            # macOS
+choco install ffmpeg           # Windows
 
-# 2) The tool
+# 2) Install the tool
 pip install -e .
 
 # 3) Verify
@@ -133,19 +204,22 @@ ffmpeg -version
 ### First Download
 
 ```bash
-# Interactive: on first run it asks for the interface language (Arabic/English),
-# a few setup defaults, then the URL and your choices.
+# Fully interactive: language, theme, setup defaults, URL, dub, quality
 ytdub
 
-# Or directly:
+# Or pass the URL directly
 ytdub "https://www.youtube.com/watch?v=XXXX"
-python -m ytdub "https://www.youtube.com/watch?v=XXXX"
+
+# Run without installing
+PYTHONPATH=src python -m ytdub "https://www.youtube.com/watch?v=XXXX"
 ```
 
-On first run the very first question is the interface language (Arabic or English);
-the rest of the wizard is shown in that language and the choice is saved as `ui_lang`.
-If you already have a `config.json` from an older version, `ytdub` asks **only** that
-missing question the next time you run it and leaves your other settings untouched.
+On first run the wizard asks for the interface language, then the theme, then the retry and
+update preferences. Everything is saved in `~/.config/ytdub/config.json` on Linux and macOS,
+or `%APPDATA%/ytdub/config.json` on Windows. Later runs reuse the saved settings.
+
+If an older `config.json` is missing `ui_lang`, `ytdub` asks only that question and keeps the
+rest of the file untouched. A missing `ui_theme` silently falls back to `classic`.
 
 ---
 
@@ -154,7 +228,7 @@ missing question the next time you run it and leaves your other settings untouch
 ### Common Examples
 
 ```bash
-# Fully non-interactive (Arabic dub + 1080p)
+# Fully non-interactive: Arabic dub, 1080p
 ytdub --url "URL" --lang ar --height 1080 --yes
 
 # Audio only, in the chosen dub
@@ -163,44 +237,63 @@ ytdub --url "URL" --audio-only
 # All dubs in a single mkv file
 ytdub --url "URL" --keep-all-dubs
 
-# When dubs are missing: try a fallback client
+# Prefer AV1/VP9 over H.264
+ytdub --url "URL" --lang ar --height 2160 --prefer-av1
+
+# When dubs are missing, try a fallback player client
 ytdub --url "URL" --player-client android --verbose
 
-# Download a whole list (one URL per line, # comments allowed)
+# Download a list: one URL per line, blank lines and # comments ignored
 ytdub --batch urls.txt --lang ar --height 1080 --yes
 
-# Re-run the last failed download from history (reuses its language + quality)
+# Replay the newest failed history row
 ytdub --retry-last
 
-# Re-run a specific history row by its id
+# Replay a specific history row
 ytdub --retry 12
 
-# Force re-download even if the file already exists
+# Force a re-download even if the file already exists
 ytdub --url "URL" --lang ar --overwrite
 
-# Show download history (succeeded / failed / resumed / retried / skipped)
+# Inspect history and settings
 ytdub --history
+ytdub --show-config
 
-# Switch the interface language (persists to config.json) and exit
+# Switch language or theme (persists to config.json) and exit
 ytdub --ui-lang en
 ytdub --ui-lang ar
-
-# Show config file and its location
-ytdub --show-config
+ytdub --theme midnight
+ytdub --theme-menu
 ```
+
+### Output Naming and Containers
+
+Files are written to `downloads/` by default and include the video ID:
+
+```
+downloads/<Video Title> [<video_id>].<container>
+```
+
+| Selection | Container | Notes |
+|---|---|---|
+| One dub + quality | `mp4` | H.264 preferred for compatibility unless `--prefer-av1` |
+| Audio only | `m4a` | Selected dub, no video stream |
+| `--keep-all-dubs` | `mkv` | All audio tracks in one file via `audio_multistreams` |
+
+Already-downloaded files are detected by the `[<video_id>]` token, so re-running the same URL
+is a no-op by default. Use `--overwrite`, or set `skip_existing` to `false`, to download again.
 
 ---
 
 ## Batch & Automation
 
-`--batch FILE` reads one YouTube URL per line, ignoring blank lines and `#` comments,
-then processes them one by one and prints a final summary (`succeeded • failed • total`).
-The exit code is `1` if any item failed, `0` otherwise — handy for scripts.
+`--batch FILE` reads one YouTube URL per line, ignores blank lines and `#` comments, then
+processes the list and prints a final summary (`succeeded`, `failed`, `total`). The exit code
+is `1` if any item failed and `0` otherwise, which makes it safe to use in scripts.
 
 ```bash
-# urls.txt — one URL per line; blank lines and # comments are ignored
 cat > urls.txt <<'EOF'
-# Animated shorts
+# Documentaries
 https://www.youtube.com/watch?v=aaaaaaaaaaa
 https://youtu.be/bbbbbbbbbbb
 EOF
@@ -208,90 +301,98 @@ EOF
 ytdub --batch urls.txt --lang ar --height 1080 --yes
 ```
 
-Every history row can be replayed without retyping options. `--retry ID` targets one row
-and `--retry-last` targets the most recent failed row; both reuse the stored language,
-resolution and container, and run non-interactively:
+Every history row can be replayed without retyping options. `--retry ID` targets one row;
+`--retry-last` targets the most recent failed row. Both reuse the stored language, resolution,
+and container, and run non-interactively.
 
 ```bash
-ytdub --history          # find the id of the failed row
-ytdub --retry 12         # replay it
-ytdub --retry-last       # or just replay the newest failure
+ytdub --history          # find the failed row id
+ytdub --retry 12         # replay that row
+ytdub --retry-last       # or replay the newest failure
 ```
-
-Already-downloaded files are detected by video ID inside the output folder, so re-running
-the same URL is a no-op by default. Pass `--overwrite` to redownload, or set
-`skip_existing` to `false` in the config to always overwrite.
 
 ---
 
 ## Configuration
 
-On the first interactive run, `ytdub` asks for the interface language first, then a few one-time setup questions, and saves them to `~/.config/ytdub/config.json` (or `%APPDATA%\ytdub` on Windows). With `--yes` the defaults (Arabic) are written silently. Existing configs from older versions are migrated by asking only for `ui_lang`, without repeating the other questions.
+Settings live in `~/.config/ytdub/config.json` (Linux/macOS) or
+`%APPDATA%/ytdub/config.json` (Windows). The first-run wizard writes them interactively;
+`--yes` writes Arabic + classic defaults silently.
 
 | Key | Default | Description |
 |---|---|---|
-| `ui_lang` | `"ar"` | Interface language: `"ar"` (Arabic) or `"en"` (English) |
+| `ui_lang` | `"ar"` | Interface language: `"ar"` or `"en"` |
+| `ui_theme` | `"classic"` | Visual theme: `"classic"`, `"midnight"`, or `"sand"` |
 | `resume_on_failure` | `true` | Retry failed downloads, resuming from `.part` |
-| `max_retries` | `5` | Attempts after the first try (1–20) |
-| `retry_wait_seconds` | `5` | Wait between attempts (1–120s) |
+| `max_retries` | `5` | Retries after the first attempt (1–20) |
+| `retry_wait_seconds` | `5` | Wait between attempts (1–120 seconds) |
 | `concurrent_fragments` | `4` | Parallel fragment downloads |
 | `socket_timeout` | `30` | Network timeout in seconds |
-| `auto_update_check` | `true` | Check PyPI for tool updates on every run |
-| `auto_update_install` | `true` | Install updates automatically (`false` = notify only) |
-| `update_check_interval_hours` | `24` | Minimum hours between PyPI checks (`0` = every run) |
-| `default_lang` | `null` | Preset dub (e.g. `"ar"`), `null` = ask |
-| `default_height` | `null` | Preset resolution (e.g. `1080`), `null` = ask |
+| `auto_update_check` | `true` | Check PyPI for tool updates on startup |
+| `auto_update_install` | `true` | Install updates automatically; `false` only notifies |
+| `update_check_interval_hours` | `24` | Minimum hours between PyPI checks; `0` checks every run |
+| `default_lang` | `null` | Preset dub code (for example `"ar"`); `null` asks |
+| `default_height` | `null` | Preset resolution (for example `1080`); `null` asks |
 | `output_dir` | `"downloads"` | Default save folder |
-| `player_client` | `null` | Fallback YouTube client, `null` = automatic |
-| `skip_existing` | `true` | Skip a URL whose output file already exists (`--overwrite` bypasses it) |
+| `player_client` | `null` | Fallback YouTube client; `null` selects automatically |
+| `skip_existing` | `true` | Skip a URL whose output file exists; `--overwrite` bypasses it |
 
-Manage it with:
+Manage configuration with:
 
 ```bash
-ytdub --ui-lang en       # switch to English (persists) and exit
-ytdub --ui-lang ar       # switch back to Arabic (persists) and exit
-ytdub --show-config      # print values + file path
+ytdub --ui-lang en       # switch to English and exit
+ytdub --ui-lang ar       # switch to Arabic and exit
+ytdub --theme midnight   # apply and save a theme
+ytdub --show-config      # print values and the config path
 ytdub --reset-config     # re-run the first-run wizard
 ```
 
-Download history lives beside it in `history.db` (SQLite) — view with `ytdub --history`.
+Download history lives beside the config in `history.db` (SQLite). View it with `ytdub --history`.
 
 ### Options Reference
 
-| Option | What it does |
+| Option | Description |
 |---|---|
-| `--lang ar` | Pick the dub directly (ar/en/es/...) |
+| `--lang ar` | Pick the dub directly (`ar`/`en`/`es`/...) |
 | `--height 1080` | Pick the resolution directly (720/1080/2160) |
-| `--yes` | Skip prompts with defaults (original + 1080p) |
-| `--keep-all-dubs` | All dubs in one `mkv` |
-| `--prefer-av1` | Prefer AV1/VP9 over h264 (higher quality, less compatible) |
-| `--audio-only` | Audio only |
-| `--output-dir` | Save folder (default `downloads`) |
-| `--player-client` | Fallback client (`android`/`mweb`/`ios`/`web_safari`) |
-| `--cookies-from-browser chrome` | Fix throttling issues (optional) |
-| `--cookies FILE` | Netscape cookies file (optional) |
+| `--yes` | Skip prompts with defaults (original dub + 1080p) |
+| `--keep-all-dubs` | Keep all dubs in one `mkv` |
+| `--prefer-av1` | Prefer AV1/VP9 over H.264 |
+| `--audio-only` | Download audio only |
+| `--output-dir` | Save folder (default from config) |
+| `--player-client` | Fallback client: `android`, `mweb`, `ios`, `web_safari` |
+| `--cookies-from-browser chrome` | Read cookies from a browser to fix throttling |
+| `--cookies FILE` | Netscape cookies file |
 | `--history` | Show download history, then exit |
-| `--history-limit N` | History rows to show (default 20) |
-| `--retry ID` | Re-run the history row with this id (reuses its language/quality) |
-| `--retry-last` | Re-run the most recent failed history row |
-| `--batch FILE` | Download every URL in a file (one per line, `#` comments allowed) |
-| `--overwrite` | Redownload even if the output file already exists |
-| `--show-config` | Show settings + file path, then exit |
+| `--history-limit N` | Number of history rows to show (default 20) |
+| `--retry ID` | Replay a specific history row |
+| `--retry-last` | Replay the most recent failed row |
+| `--batch FILE` | Download every URL in a file |
+| `--overwrite` | Re-download even if the output exists |
+| `--show-config` | Show settings and the config path, then exit |
 | `--ui-lang ar\|en` | Set and save the interface language, then exit |
+| `--theme classic\|midnight\|sand` | Set and save the interface theme |
+| `--theme-menu` | Interactive theme picker with a live preview |
 | `--reset-config` | Re-run the first-run wizard, then exit |
-| `--verbose` | Technical details for errors |
+| `--verbose` | Print technical error details |
 
 ---
 
-## Testing & Quality
+## Testing and Quality
+
+The test suite is offline and fixture-based; it never contacts YouTube.
 
 ```bash
-# All tests (offline — against saved fixtures)
+# Run everything
 PYTHONPATH=src python -m pytest tests/ -q
 
-# Quick check
+# Smoke check without installing
 PYTHONPATH=src python -m ytdub --help
 ```
+
+The suite covers dub grouping, format strings, size estimates, retry/resume behavior,
+config migration, history storage, i18n key parity, theme palettes, responsive breakpoints,
+and the theme preview.
 
 ---
 
@@ -299,21 +400,23 @@ PYTHONPATH=src python -m ytdub --help
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `ffmpeg not found` | Binary not installed | Install it via your package manager (`apt`/`brew`/`choco`) |
-| `Unsupported URL` | Non-YouTube or truncated link | Paste a full `watch`/`youtu.be` link |
-| `Throttled (429)` | YouTube limited the IP | Wait a bit or use `--cookies-from-browser` |
-| `PO Token required` | YouTube humanity check | Update `yt-dlp` to nightly, install `deno`, then `--player-client android` |
-| `DRM protected` | Encrypted content | Cannot be downloaded — by design |
-| Only one dub | Video has a single original language | Normal behavior — the step is skipped |
-| `Failed after N attempts` | Unstable network, retries exhausted | Raise `max_retries`/`retry_wait_seconds` in config, or re-run later — it resumes from `.part` |
-| Output skipped ("موجود مسبقًا") | `skip_existing` is on and the file exists | Use `--overwrite`, or set `skip_existing` to `false` |
-| `--batch` exits with code 1 | At least one URL failed | Read the per-URL errors above the summary, then fix and `--retry ID` |
+| `ffmpeg not found` | Binary not installed | Install it with `apt`, `brew`, `dnf`, or `choco` |
+| `Unsupported URL` | Non-YouTube or truncated link | Paste a full `watch` or `youtu.be` link |
+| `Throttled (429)` | YouTube limited the IP | Wait, or use `--cookies-from-browser` |
+| `PO Token required` | YouTube humanity check | Update `yt-dlp` to nightly, install `deno`, then use `--player-client android` |
+| `DRM protected` | Encrypted content | Cannot be downloaded by design |
+| Only one dub is listed | The video has a single original language | Normal; the dub step is skipped |
+| `Failed after N attempts` | Unstable network or exhausted retries | Raise `max_retries`/`retry_wait_seconds`, or re-run later; it resumes from `.part` |
+| Output skipped | `skip_existing` is on and the file exists | Use `--overwrite`, or set `skip_existing` to `false` |
+| `--batch` exits with code 1 | At least one URL failed | Read the per-URL errors, fix them, then use `--retry ID` |
+| A theme is hard to read | The palette does not match the terminal background | Use `midnight` on dark backgrounds, `sand` on light ones, or `classic` for automatic terminal colors |
 
 ---
 
 ## Disclaimer
 
-⚠️ Disclaimer: the developer is not responsible for any misuse of this tool.
+**Disclaimer:** the developer is not responsible for any misuse of this tool. Respect
+copyright, platform terms, and local law when downloading content.
 
 ---
 
@@ -325,9 +428,11 @@ This project is released into the public domain under the [Unlicense](LICENSE).
 
 ## Contributing
 
-Contributions are welcome — please start with [CONTRIBUTING.md](CONTRIBUTING.md):
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md):
 
-1. Run `pytest tests/ -q` and make sure all tests pass
-2. Keep all `yt-dlp` logic inside `youtube.py`
-3. Keep rendering logic out of `downloader.py`
-4. Full design details live in `docs/`
+1. Run `PYTHONPATH=src python -m pytest tests/ -q` and make sure every test passes.
+2. Keep all `yt-dlp` logic inside `youtube.py`.
+3. Keep rendering out of `downloader.py`; colors belong in `themes.py`, strings in `i18n.py`.
+4. Add a test for any behavior change: grouping/format tests, config/store tests, theme tests, or i18n tests as appropriate.
+5. Never commit cookies, credentials, `.env` files, downloaded media, or `downloads/`.
+6. Full design rationale lives in `docs/` (8 Arabic research files).

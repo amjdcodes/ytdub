@@ -11,9 +11,11 @@ import os
 import platform
 
 from .i18n import LANG_AR, LANG_EN, set_lang, t
+from .themes import DEFAULT_THEME, THEME_NAMES, normalize_theme, theme_description, theme_label
 
 DEFAULTS: dict = {
     "ui_lang": "ar",
+    "ui_theme": DEFAULT_THEME,
     "resume_on_failure": True,
     "max_retries": 5,
     "retry_wait_seconds": 5,
@@ -90,6 +92,31 @@ def _ask_language(console) -> str:
         console.print(t("wizard.lang_invalid"))
 
 
+def _ask_theme(console) -> str:
+    """سؤال التصميم — يُطرح مرة واحدة في المعالج الأول (Enter = الكلاسيكي)."""
+    console.print(t("theme.header"))
+    for i, name in enumerate(THEME_NAMES, 1):
+        console.print(f"  {i}) {theme_label(name)} — {theme_description(name)}")
+    maximum = len(THEME_NAMES)
+    while True:
+        try:
+            raw = console.input(t("theme.prompt", max=maximum, default=1)).strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            raise RuntimeError(t("error.setup_cancelled"))
+        if raw == "":
+            return DEFAULT_THEME
+        if raw in THEME_NAMES:
+            return normalize_theme(raw)
+        try:
+            n = int(raw)
+        except ValueError:
+            console.print(f"[red]{t('theme.invalid', max=maximum)}[/red]")
+            continue
+        if 1 <= n <= maximum:
+            return THEME_NAMES[n - 1]
+        console.print(f"[red]{t('theme.invalid', max=maximum)}[/red]")
+
+
 def _ask_yes_no(console, question: str, default: bool) -> bool:
     hint = "Y/n" if default else "y/N"
     while True:
@@ -129,9 +156,11 @@ def first_run_wizard(console) -> dict:
     """أسئلة أول تشغيل — تبدأ باللغة ثم بقية الأسئلة بها، وتُحفظ في config.json."""
     lang = _ask_language(console)
     set_lang(lang)
+    theme = _ask_theme(console)
     console.print(f"[bold cyan]{t('wizard.intro')}[/bold cyan]")
     cfg = dict(DEFAULTS)
     cfg["ui_lang"] = lang
+    cfg["ui_theme"] = theme
     cfg["resume_on_failure"] = _ask_yes_no(console, t("wizard.retry_q"), True)
     if cfg["resume_on_failure"]:
         cfg["max_retries"] = _ask_int(console, t("wizard.retry_max_q"), 5, 1, 20)
@@ -168,6 +197,7 @@ def ensure(console, non_interactive: bool = False) -> tuple[dict, str]:
     raw = _read_raw()
     cfg = dict(DEFAULTS)
     cfg.update({k: v for k, v in raw.items() if k in DEFAULTS})
+    cfg["ui_theme"] = normalize_theme(cfg.get("ui_theme"))
 
     norm = str(raw.get("ui_lang") or "").strip().lower()
     if norm in (LANG_AR, LANG_EN):

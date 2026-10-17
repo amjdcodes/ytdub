@@ -119,12 +119,12 @@ def run_startup_check(console, cfg: dict, state_dir: str | None = None) -> None:
         return
     if cfg.get("auto_update_install"):
         for r in pending:
-            console.print(t("update.upgrading", pkg=r["package"], old=r["installed"], new=r["latest"]))
+            console.print(f"[accent]{t('update.upgrading', pkg=r['package'], old=r['installed'], new=r['latest'])}[/accent]")
             ok = upgrade(r["package"])
             if ok:
-                console.print(f"[green]{t('update.ok', pkg=r['package'])}[/green]")
+                console.print(f"[success]{t('update.ok', pkg=r['package'])}[/success]")
             else:
-                console.print(f"[red]{t('update.fail', pkg=r['package'])}[/red]")
+                console.print(f"[error]{t('update.fail', pkg=r['package'])}[/error]")
     else:
         names = ", ".join(f"{r['package']} ({r['latest']})" for r in pending)
-        console.print(f"[yellow]{t('update.available', names=names)}[/yellow]")
+        console.print(f"[warning]{t('update.available', names=names)}[/warning]")
