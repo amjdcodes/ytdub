@@ -36,6 +36,7 @@ in Arabic and English, with three visual themes that adapt to the terminal width
 - **Three interface themes** — Classic (adaptive terminal colors), Midnight (soft blue for dark terminals), and Sand (warm tones for light terminals). Saved as `ui_theme`, switchable with `--theme`, or previewed interactively with `--theme-menu`.
 - **Responsive layout** — tables and panels follow the terminal width (`compact` / `regular` / `wide`), drop secondary columns when space is tight, and cap at a comfortable reading width.
 - **Eye-friendly design** — semantic theme styles, soft accents, and contrast tuned for each background; no raw ANSI colors scattered through the flow.
+- **Developer notation, no emoji** — statuses use plain log-style tags (`OK ·`, `ERR ·`, `WARN ·`, `RETRY ·`, `SKIP ·`, `INFO ·`) with geometric markers (`◆`, `›`, `·`, `→`), so output stays consistent in every terminal and pipe.
 - **Dubbing table** — every audio language with its type (original / dubbed / auto-dub), code, and bitrate.
 - **Quality table** — every resolution with codec, approximate size, and a compatibility note.
 - **Size estimate** — combined video + selected dub size before anything is downloaded.
@@ -90,6 +91,27 @@ Panels and tables stop at `110` columns so long lines stay readable on ultrawide
 On very narrow screens, the video title moves inside the panel so it wraps instead of being
 cropped. The same rendering functions power real runs and the `--theme-menu` preview, so
 what you see is what you get.
+
+### Output Notation
+
+The interface uses a small, emoji-free notation so output renders identically in every
+terminal, font, and pipe:
+
+| Marker | Meaning |
+|---|---|
+| `OK ·` | Operation completed successfully |
+| `ERR ·` | Operation failed |
+| `WARN ·` | Warning or retry reason |
+| `RETRY ·` | Retry in progress |
+| `SKIP ·` | Existing file or item skipped |
+| `INFO ·` | Availability or status information |
+| `◆` | Section, table, or panel title |
+| `›` | Input prompt |
+| `·` | Separator between values |
+| `→` | Transition between states |
+
+These markers live in `i18n.py`, and the test suite rejects emoji ranges to prevent them
+from creeping back in.
 
 ---
 

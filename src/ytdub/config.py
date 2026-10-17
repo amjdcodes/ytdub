@@ -10,7 +10,7 @@ import json
 import os
 import platform
 
-from .i18n import LANG_AR, LANG_EN, set_lang, t
+from .i18n import LANG_AR, LANG_EN, SYM_PROMPT, set_lang, t
 from .themes import DEFAULT_THEME, THEME_NAMES, normalize_theme, theme_description, theme_label
 
 DEFAULTS: dict = {
@@ -82,7 +82,7 @@ def _ask_language(console) -> str:
     console.print("  2) English")
     while True:
         try:
-            raw = console.input("❯ [1-2] (1): ").strip().lower()
+            raw = console.input(f"{SYM_PROMPT} [1-2] (1): ").strip().lower()
         except (KeyboardInterrupt, EOFError):
             raise RuntimeError(t("error.setup_cancelled"))
         if raw in ("", "1", "ar", "arabic", "العربية", "ع"):

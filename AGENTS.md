@@ -39,6 +39,7 @@ PYTHONPATH=src python -m ytdub --help       # smoke check without install
 - Missing dubs often means wrong player client, not no dubs: `cli.py` retries with `--player-client android`. `deno`/`node` + nightly `yt-dlp` needed for PO-Token/SABR cases.
 - Stack is fixed (`yt-dlp`, `rich`, `click`, `questionary`) — don't add deps without PR justification. Full rationale lives in `docs/` (8 Arabic research files).
 - User-facing messages are concise and come only from `i18n.t(...)`; technical detail goes behind `--verbose` only.
+- No emoji or pictographs in user-facing text. Use the shared developer notation in `i18n.py`: `OK ·` / `ERR ·` / `WARN ·` / `RETRY ·` / `SKIP ·` / `INFO ·` for events and `◆` / `›` / `·` / `→` for structure. `tests/test_i18n.py` rejects emoji ranges, so a wrong symbol fails the suite.
 - Any new AR message needs an EN twin (same key) or `tests/test_i18n.py` key-parity fails. Status/kind labels use `store.status_label` / `utils.kind_label`, never local dicts. Theme labels/descriptions also live in `i18n.py`.
 - Never hardcode ANSI color names in `ui.py`/`cli.py` — use semantic theme styles (`[primary]`, `[success]`, `[error]`, `[muted]`, `table.border`, ...) so every theme applies. The config wizard is the exception (it runs before a theme is active).
 - Titles/paths contain `[<video_id>]`; wrap any interpolated string printed via `rich` in `rich.markup.escape()` or rich swallows the brackets as markup (`cli.py`, `ui.py`).

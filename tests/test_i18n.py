@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -39,16 +40,26 @@ def test_catalogs_have_identical_keys_and_no_empty_values():
 def test_default_language_is_arabic():
     i18n.set_lang(None)
     assert i18n.get_lang() == "ar"
-    assert i18n.t("status.success") == "نجح ✅"
+    assert i18n.t("status.success") == "نجح"
+
+
+def test_catalogs_contain_no_emoji_or_pictographs():
+    # العائلة المعتمدة: وسوم نصية [ok]/[err]/[warn]/[retry]/[skip] ورموز
+    # هندسية ◆ › · → فقط. أي إيموجي أو رمز تصويري يفشل هذا الاختبار.
+    forbidden = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]")
+    for lang, table in i18n._MESSAGES.items():
+        for key, value in table.items():
+            match = forbidden.search(value)
+            assert match is None, f"{lang}:{key} contains {match.group(0)!r}"
 
 
 def test_switch_to_english_and_back():
     i18n.set_lang("en")
     assert i18n.get_lang() == "en"
-    assert i18n.t("status.success") == "Succeeded ✅"
+    assert i18n.t("status.success") == "Succeeded"
     assert "Batch" in i18n.t("batch.started", count=3, file="x.txt")
     i18n.set_lang("ar")
-    assert i18n.t("status.success") == "نجح ✅"
+    assert i18n.t("status.success") == "نجح"
 
 
 def test_english_aliases_normalize():

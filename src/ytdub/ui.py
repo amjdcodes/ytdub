@@ -16,7 +16,7 @@ from rich.table import Table
 from rich.theme import Theme
 
 from . import __version__
-from .i18n import t
+from .i18n import SYM_DOT, SYM_SECTION, t
 from .models import DubTrack, Quality, VideoInfo
 from .themes import (
     DEFAULT_THEME,
@@ -110,7 +110,7 @@ def show_banner() -> None:
     """ترويسة قصيرة تعرض الإصدار والتصميم النشط (تفاعلي فقط)."""
     if not console.is_terminal:
         return
-    title = f"[banner.title]◈ ytdub[/] [muted]v{__version__}[/] [muted]•[/] [accent]{theme_label(_ACTIVE_THEME)}[/]"
+    title = f"[banner.title]{SYM_SECTION} ytdub[/] [muted]v{__version__}[/] [muted]{SYM_DOT}[/] [accent]{theme_label(_ACTIVE_THEME)}[/]"
     console.print(
         Panel(
             f"[banner.subtitle]{t('banner.tagline')}[/]",
@@ -126,14 +126,14 @@ def show_banner() -> None:
 def show_video_info(info: VideoInfo) -> None:
     sub = t("video.subtitle", uploader=escape(info.uploader), duration=format_duration(info.duration))
     if info.view_count:
-        sub += " • " + t("video.views", count=info.view_count)
+        sub += " " + SYM_DOT + " " + t("video.views", count=info.view_count)
     if content_width() < 50:
         # على الشاشات الضيقة يُعرض العنوان داخل اللوحة حتى يلتف كاملًا.
-        body = f"[heading]🎬 {escape(info.title)}[/heading]\n[text]{sub}[/text]"
+        body = f"[heading]{SYM_SECTION} {escape(info.title)}[/heading]\n[text]{sub}[/text]"
         title = None
     else:
         body = f"[text]{sub}[/text]"
-        title = f"🎬 {escape(info.title)}"
+        title = f"{SYM_SECTION} {escape(info.title)}"
     console.print(
         Panel(
             body,

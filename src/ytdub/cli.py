@@ -18,7 +18,7 @@ from . import config as app_config
 from . import store
 from . import updater
 from .downloader import download, ensure_ffmpeg
-from .i18n import set_lang, t
+from .i18n import TAG_ERR, TAG_WARN, set_lang, t
 from .themes import THEME_NAMES, theme_label
 from .ui import (
     ask_dub,
@@ -41,8 +41,8 @@ from .youtube import build_format, estimate_size, fetch_info, group_dubs, group_
 HELP_NOTE = (
     "حمّل فيديوهات يوتيوب بالدبلجة والجودة التي تختارها.\n"
     "Download YouTube videos with the dub language and quality you choose.\n\n"
-    "⚠️ تنبيه: المطوّر غير مسؤول عن أي استخدام سيئ للأداة.\n"
-    "⚠️ Disclaimer: the developer is not responsible for any misuse of this tool."
+    + TAG_WARN + " تنبيه: المطوّر غير مسؤول عن أي استخدام سيئ للأداة.\n"
+    + TAG_WARN + " Disclaimer: the developer is not responsible for any misuse of this tool."
 )
 
 
@@ -124,7 +124,7 @@ def main(url, url_opt, lang, height, yes, output_dir, player_client, keep_all_du
             return
         _run(url or url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite)
     except RuntimeError as e:
-        console.print(f"[error]❌ {e}[/error]")
+        console.print(f"[error]{TAG_ERR} {e}[/error]")
         sys.exit(1)
     except KeyboardInterrupt:
         console.print(f"\n[warning]{t('error.operation_cancelled')}[/warning]")
