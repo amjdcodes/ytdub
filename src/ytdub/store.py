@@ -1,6 +1,6 @@
 """قاعدة بيانات السجل (sqlite من المكتبة القياسية).
 
-تحفظ كل رابط مع حالته: pending / success / failed / resumed / retried
+تحفظ كل رابط مع حالته: pending / success / failed / resumed / retried / skipped
 + عدد المحاولات والمسار النهائي — وتُعرض عبر `ytdub --history`.
 """
 
@@ -10,7 +10,8 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-from .config import app_dir
+from . import config
+from .i18n import t
 
 DB_FILENAME = "history.db"
 
@@ -19,14 +20,12 @@ STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
 STATUS_RESUMED = "resumed"
 STATUS_RETRIED = "retried"
+STATUS_SKIPPED = "skipped"
 
-STATUS_AR = {
-    STATUS_PENDING: "قيد الانتظار",
-    STATUS_SUCCESS: "نجح ✅",
-    STATUS_FAILED: "فشل ❌",
-    STATUS_RESUMED: "استُؤنف 🔁",
-    STATUS_RETRIED: "أُعيدت محاولته 🔄",
-}
+
+def status_label(status: str) -> str:
+    """اسم الحالة بلغة الواجهة الحالية."""
+    return t(f"status.{status}")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS downloads (
@@ -48,7 +47,7 @@ CREATE TABLE IF NOT EXISTS downloads (
 
 
 def db_path() -> str:
-    return os.path.join(app_dir(), DB_FILENAME)
+    return os.path.join(config.app_dir(), DB_FILENAME)
 
 
 def _now() -> str:
@@ -56,7 +55,7 @@ def _now() -> str:
 
 
 def connect() -> sqlite3.Connection:
-    os.makedirs(app_dir(), exist_ok=True)
+    os.makedirs(config.app_dir(), exist_ok=True)
     con = sqlite3.connect(db_path())
     con.execute(_SCHEMA)
     con.commit()
@@ -86,6 +85,49 @@ def record_attempt(row_id: int, status: str, error: str = "", filepath: str = ""
             (status, error, filepath, filepath, _now(), row_id),
         )
         con.commit()
+    finally:
+        con.close()
+
+
+def record_skip(url: str, video_id: str = "", title: str = "", lang: str = "", height=None, container: str = "", filepath: str = "") -> int:
+    """يسجّل صفًا بحالة skipped (الملف موجود مسبقًا) دون أي محاولة تنزيل."""
+    con = connect()
+    try:
+        cur = con.execute(
+            "INSERT INTO downloads (url, video_id, title, lang, height, container, status, attempts, filepath, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
+            (url, video_id, title, lang, height, container, STATUS_SKIPPED, filepath, _now(), _now()),
+        )
+        con.commit()
+        return int(cur.lastrowid)
+    finally:
+        con.close()
+
+
+_COLS = "id, url, video_id, title, lang, height, container, status, attempts, filepath, error, updated_at"
+
+
+def get(row_id: int) -> dict | None:
+    """يرجع صفًا واحدًا بمعرّفه، أو None."""
+    con = connect()
+    try:
+        con.row_factory = sqlite3.Row
+        row = con.execute(f"SELECT {_COLS} FROM downloads WHERE id=?", (row_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        con.close()
+
+
+def last_failed() -> dict | None:
+    """يرجع آخر صف بحالة failed (لـ --retry-last)، أو None."""
+    con = connect()
+    try:
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            f"SELECT {_COLS} FROM downloads WHERE status=? ORDER BY id DESC LIMIT 1",
+            (STATUS_FAILED,),
+        ).fetchone()
+        return dict(row) if row else None
     finally:
         con.close()
 

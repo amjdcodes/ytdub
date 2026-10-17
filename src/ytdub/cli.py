@@ -1,4 +1,7 @@
-"""نقطة الأوامر — التدفق: إعداد → تحديث → رابط → دبلجة → جودة → تحميل باستئناف."""
+"""نقطة الأوامر — التدفق: إعداد → تحديث → رابط → دبلجة → جودة → تقدير → تخطي/تحميل.
+
+يدعم رابطًا واحدًا، دفعات (`--batch`)، وإعادة من السجل (`--retry`/`--retry-last`).
+"""
 
 from __future__ import annotations
 
@@ -6,6 +9,7 @@ import os
 import sys
 
 import click
+from rich.markup import escape
 from rich.table import Table
 from rich.traceback import install as rich_traceback
 
@@ -14,90 +18,163 @@ from . import config as app_config
 from . import store
 from . import updater
 from .downloader import download, ensure_ffmpeg
-from .ui import ask_dub, ask_quality, console, make_progress, show_dubs_table, show_qualities_table, show_video_info
-from .utils import is_youtube_url
-from .youtube import build_format, fetch_info, group_dubs, group_qualities
+from .i18n import set_lang, t
+from .ui import (
+    ask_dub,
+    ask_quality,
+    confirm_overwrite,
+    console,
+    make_progress,
+    show_dubs_table,
+    show_estimate,
+    show_qualities_table,
+    show_video_info,
+)
+from .utils import existing_output, is_youtube_url, read_batch_file, retry_selection
+from .youtube import build_format, estimate_size, fetch_info, group_dubs, group_qualities
 
 HELP_NOTE = (
-    "حمّل فيديوهات يوتيوب بالدبلجة والجودة التي تختارها.\n\n"
-    "⚠️ تنبيه: المطوّر غير مسؤول عن أي استخدام سيئ للأداة."
+    "حمّل فيديوهات يوتيوب بالدبلجة والجودة التي تختارها.\n"
+    "Download YouTube videos with the dub language and quality you choose.\n\n"
+    "⚠️ تنبيه: المطوّر غير مسؤول عن أي استخدام سيئ للأداة.\n"
+    "⚠️ Disclaimer: the developer is not responsible for any misuse of this tool."
 )
 
 
 @click.command(help=HELP_NOTE)
 @click.argument("url", required=False)
-@click.option("--url", "url_opt", default=None, help="رابط الفيديو (بديل للوسيط).")
-@click.option("--lang", default=None, help="كود الدبلجة مباشرة (ar/en/es) لتجاوز السؤال.")
-@click.option("--height", type=int, default=None, help="الدقة مباشرة (720/1080/2160) لتجاوز السؤال.")
-@click.option("--yes", "-y", is_flag=True, help="تجاوز كل الأسئلة بالافتراضيات (أصلي + 1080p).")
-@click.option("--output-dir", "-o", default=None, help="مجلد الحفظ (افتراضي config.json).")
-@click.option("--player-client", default=None, help="عميل يوتيوب (android/mweb/ios/web_safari) عند غياب الدبلجات.")
-@click.option("--keep-all-dubs", is_flag=True, help="الاحتفاظ بكل الدبلجات في ملف mkv واحد.")
-@click.option("--prefer-av1", is_flag=True, help="تفضيل AV1/VP9 بدل h264 (جودة أعلى، توافق أقل).")
-@click.option("--audio-only", is_flag=True, help="تحميل الصوت فقط.")
-@click.option("--cookies", "cookies_file", default=None, help="ملف كوكيز Netscape (اختياري).")
-@click.option("--cookies-from-browser", default=None, help="مثال: chrome / firefox (اختياري).")
-@click.option("--history", is_flag=True, help="عرض سجل التنزيلات (ناجح/فاشل/مستأنف/معاد) ثم خروج.")
-@click.option("--history-limit", type=int, default=20, show_default=True, help="عدد صفوف السجل.")
-@click.option("--show-config", is_flag=True, help="عرض الإعدادات الحالية ومسارها ثم خروج.")
-@click.option("--reset-config", is_flag=True, help="إعادة معالج الإعداد من جديد ثم خروج.")
-@click.option("--verbose", is_flag=True, help="إظهار تفاصيل تقنية للأخطاء.")
+@click.option("--url", "url_opt", default=None, help="رابط الفيديو (بديل للوسيط) / Video URL (alternative to the argument).")
+@click.option("--lang", default=None, help="كود الدبلجة مباشرة (ar/en/es) لتجاوز السؤال / Dub code, skips the prompt.")
+@click.option("--height", type=int, default=None, help="الدقة مباشرة (720/1080/2160) / Resolution, skips the prompt.")
+@click.option("--yes", "-y", is_flag=True, help="تجاوز كل الأسئلة بالافتراضيات / Skip all prompts with defaults.")
+@click.option("--output-dir", "-o", default=None, help="مجلد الحفظ (افتراضي config.json) / Save folder (default from config).")
+@click.option("--player-client", default=None, help="عميل يوتيوب عند غياب الدبلجات / YouTube client fallback (android/mweb/ios/web_safari).")
+@click.option("--keep-all-dubs", is_flag=True, help="الاحتفاظ بكل الدبلجات في ملف mkv واحد / Keep every dub in one mkv.")
+@click.option("--prefer-av1", is_flag=True, help="تفضيل AV1/VP9 بدل h264 / Prefer AV1/VP9 over h264.")
+@click.option("--audio-only", is_flag=True, help="تحميل الصوت فقط / Audio only.")
+@click.option("--cookies", "cookies_file", default=None, help="ملف كوكيز Netscape (اختياري) / Netscape cookies file (optional).")
+@click.option("--cookies-from-browser", default=None, help="مثال: chrome / firefox (اختياري) / e.g. chrome / firefox (optional).")
+@click.option("--history", is_flag=True, help="عرض سجل التنزيلات ثم خروج / Show download history, then exit.")
+@click.option("--history-limit", type=int, default=20, show_default=True, help="عدد صفوف السجل / History rows to show.")
+@click.option("--retry", "retry_id", type=int, default=None, help="إعادة محاولة صف معيّن من السجل / Retry a specific history row by id.")
+@click.option("--retry-last", is_flag=True, help="إعادة محاولة آخر صف فاشل / Retry the most recent failed row.")
+@click.option("--batch", "batch_file", default=None, help="ملف روابط (سطر لكل رابط) / File of URLs, one per line.")
+@click.option("--overwrite", is_flag=True, help="إعادة التنزيل حتى لو كان الملف موجودًا / Redownload even if the file exists.")
+@click.option("--show-config", is_flag=True, help="عرض الإعدادات ومسارها ثم خروج / Show settings and path, then exit.")
+@click.option("--ui-lang", type=click.Choice(["ar", "en"]), default=None, help="تغيير لغة الواجهة وحفظها ثم خروج / Set and save the interface language, then exit.")
+@click.option("--reset-config", is_flag=True, help="إعادة معالج الإعداد من جديد / Re-run the setup wizard.")
+@click.option("--verbose", is_flag=True, help="إظهار تفاصيل تقنية للأخطاء / Technical error details.")
 @click.version_option(__version__, "--version", "-V")
-def main(url, url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, history, history_limit, show_config, reset_config, verbose):
+def main(url, url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, history, history_limit, retry_id, retry_last, batch_file, overwrite, show_config, ui_lang, reset_config, verbose):
     if verbose:
         rich_traceback(show_locals=False)
     try:
         if history:
+            app_config.ensure(console, non_interactive=True)
             _show_history(history_limit)
             return
         if show_config:
-            cfg, _ = app_config.load()
-            console.print(f"[bold]الإعدادات:[/bold] {app_config.config_path()}")
+            cfg, _ = app_config.ensure(console, non_interactive=True)
+            console.print(f"[bold]{t('config.header', path=app_config.config_path())}[/bold]")
             for k, v in cfg.items():
                 console.print(f"  {k} = {v}")
+            return
+        if ui_lang:
+            cfg, _ = app_config.load()
+            cfg["ui_lang"] = ui_lang
+            path = app_config.save(cfg)
+            set_lang(ui_lang)
+            console.print(t("config.ui_lang_set", path=path))
             return
         if reset_config:
             app_config.first_run_wizard(console)
             return
-        _run(url or url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose)
+        if retry_id is not None or retry_last:
+            _retry_from_history(retry_id, retry_last, output_dir, player_client, prefer_av1, cookies_file, cookies_from_browser, verbose, overwrite)
+            return
+        if batch_file:
+            _run_batch(batch_file, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite)
+            return
+        _run(url or url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite)
     except RuntimeError as e:
         console.print(f"[red]❌ {e}[/red]")
         sys.exit(1)
     except KeyboardInterrupt:
-        console.print("\n[yellow]أُلغيت العملية.[/yellow]")
+        console.print(f"\n[yellow]{t('error.operation_cancelled')}[/yellow]")
         sys.exit(130)
+
+
+def _retry_from_history(retry_id, retry_last, output_dir, player_client, prefer_av1, cookies_file, cookies_from_browser, verbose, overwrite) -> None:
+    row = store.last_failed() if retry_last else store.get(int(retry_id))
+    if row is None:
+        if retry_last:
+            raise RuntimeError(t("error.retry_not_found_last"))
+        raise RuntimeError(t("error.retry_not_found_row", id=retry_id))
+    sel = retry_selection(row)
+    title = escape((row.get("title") or row["url"])[:60])
+    console.print(t("retry.starting", title=f"[bold]{title}[/bold]", id=row["id"]))
+    _run(row["url"], sel["lang"], sel["height"], True, output_dir, player_client, sel["keep_all_dubs"], prefer_av1, sel["audio_only"], cookies_file, cookies_from_browser, verbose, overwrite)
+
+
+def _run_batch(batch_file, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite) -> None:
+    urls = read_batch_file(batch_file)
+    if not urls:
+        raise RuntimeError(t("error.batch_empty"))
+    cfg, output_dir = _setup(yes, output_dir)
+    lang = lang or cfg.get("default_lang")
+    height = height if height is not None else cfg.get("default_height")
+    player_client = player_client or cfg.get("player_client")
+    ensure_ffmpeg(audio_only=bool(audio_only))
+    console.print(f"[bold cyan]{t('batch.started', count=len(urls), file=batch_file)}[/bold cyan]")
+
+    ok = failed = 0
+    for i, u in enumerate(urls, 1):
+        console.rule(f"[{i}/{len(urls)}] {u}")
+        try:
+            _process_url(u, cfg, output_dir, lang, height, yes, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite)
+            ok += 1
+        except RuntimeError as e:
+            failed += 1
+            console.print(f"[red]{t('batch.item_failed', err=e)}[/red]")
+    console.print(f"[bold]{t('batch.summary', ok=ok, failed=failed, total=len(urls))}[/bold]")
+    if failed:
+        sys.exit(1)
 
 
 def _show_history(limit: int) -> None:
     rows = store.recent(limit)
     if not rows:
-        console.print("[yellow]لا يوجد سجل بعد — حمّل أول فيديو.[/yellow]")
+        console.print(f"[yellow]{t('history.empty')}[/yellow]")
         return
-    t = Table(title=f"📜 سجل التنزيلات (آخر {len(rows)})")
-    t.add_column("#", justify="center")
-    t.add_column("العنوان")
-    t.add_column("اللغة", justify="center")
-    t.add_column("الدقة", justify="center")
-    t.add_column("الحالة")
-    t.add_column("محاولات", justify="center")
+    t_obj = Table(title=t("history.title", count=len(rows)))
+    t_obj.add_column(t("history.col_id"), justify="center")
+    t_obj.add_column(t("history.col_title"))
+    t_obj.add_column(t("history.col_lang"), justify="center")
+    t_obj.add_column(t("history.col_height"), justify="center")
+    t_obj.add_column(t("history.col_status"))
+    t_obj.add_column(t("history.col_attempts"), justify="center")
     for r in rows:
-        t.add_row(
+        t_obj.add_row(
             str(r["id"]),
-            (r["title"] or r["url"])[:45],
+            escape((r["title"] or r["url"])[:45]),
             r["lang"] or "—",
             str(r["height"]) + "p" if r["height"] else "—",
-            store.STATUS_AR.get(r["status"], r["status"]),
+            store.status_label(r["status"]),
             str(r["attempts"]),
         )
-    console.print(t)
+    console.print(t_obj)
 
 
-def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose):
-    # 0) الإعدادات + فحص التحديثات (المعالج يظهر فقط بأول تشغيل تفاعلي)
+def _setup(yes, output_dir):
+    """إعداد مشترك: الإعدادات + فحص التحديثات (بختم زمني) + مجلد الإخراج."""
     cfg, cfg_path = app_config.ensure(console, non_interactive=bool(yes))
-    updater.run_startup_check(console, cfg)
-
+    updater.run_startup_check(console, cfg, state_dir=os.path.dirname(cfg_path))
     output_dir = output_dir or cfg.get("output_dir") or "downloads"
+    return cfg, output_dir
+
+
+def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite=False):
+    cfg, output_dir = _setup(yes, output_dir)
     lang = lang or cfg.get("default_lang")
     height = height if height is not None else cfg.get("default_height")
     player_client = player_client or cfg.get("player_client")
@@ -105,17 +182,23 @@ def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefe
     # 1) الرابط
     if not url:
         try:
-            url = console.input("🔗 [bold]رابط الفيديو:[/bold] ").strip()
+            url = console.input(t("ask.url_prompt")).strip()
         except (KeyboardInterrupt, EOFError):
-            raise RuntimeError("أُلغي الإدخال.")
-    if not url or not is_youtube_url(url):
-        raise RuntimeError("الرابط غير مدعوم — الصق رابط watch/youtu.be/music.youtube صحيحًا.")
+            raise RuntimeError(t("error.input_cancelled"))
 
     # 2) ffmpeg إلزامي
     ensure_ffmpeg(audio_only=audio_only or False)
 
+    _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite)
+
+
+def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, verbose, overwrite=False):
+    """معالجة رابط واحد: جلب → جداول → اختيار → بناء الفورمات → تخطي/تحميل."""
+    if not url or not is_youtube_url(url):
+        raise RuntimeError(t("error.url_unsupported"))
+
     # 3) جلب البيانات
-    with console.status("🔍 جارٍ فحص الدبلجات والجودات...", spinner="dots"):
+    with console.status(t("scan.status"), spinner="dots"):
         info = fetch_info(url, player_client=player_client, cookies_file=cookies_file, cookies_from_browser=cookies_from_browser, verbose=verbose)
         dubs = group_dubs(info.formats)
         quals = group_qualities(info.formats)
@@ -126,12 +209,12 @@ def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefe
                 if len(alt_dubs) > len(dubs):
                     info, dubs = alt, alt_dubs
                     quals = group_qualities(alt.formats)
-                    console.print("[yellow]تم العثور على دبلجات إضافية عبر android player.[/yellow]")
+                    console.print(f"[yellow]{t('scan.android_extra')}[/yellow]")
             except Exception:
                 pass
 
     if not quals and not audio_only:
-        raise RuntimeError("لا توجد جودات فيديو متاحة لهذا الرابط (خاص/محذوف/DRM؟).")
+        raise RuntimeError(t("error.no_qualities"))
 
     show_video_info(info)
     show_dubs_table(dubs)
@@ -145,26 +228,26 @@ def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefe
         dub = next((d for d in dubs if d.lang.lower() == lang.lower()), None)
         if dub is None:
             avail = ", ".join(d.lang for d in dubs)
-            raise RuntimeError(f"الدبلجة '{lang}' غير متوفرة. المتاح: {avail}")
-        console.print(f"🎧 الدبلجة: [bold]{dub.display} ({dub.lang})[/bold]")
+            raise RuntimeError(t("error.dub_unavailable", lang=lang, avail=avail))
+        console.print(t("dub.selected", display=f"[bold]{escape(dub.display)}[/bold]", lang=dub.lang))
     elif yes:
         dub = next((d for d in dubs if d.is_default), dubs[0])
-        console.print(f"🎧 الدبلجة (افتراضي): [bold]{dub.display}[/bold]")
+        console.print(t("dub.default", display=f"[bold]{escape(dub.display)}[/bold]"))
     else:
         dub = ask_dub(dubs)
 
-    # 5) اختيار الجودة
+    # 5) اختيار الجودة (الصوت فقط يتجاوز الاختيار تمامًا)
     want_audio_only = bool(audio_only)
     quality = None
-    if keep_all_dubs:
+    if keep_all_dubs or want_audio_only:
         quality = None
     elif height is not None:
         quality = next((q for q in quals if q.height == height), None)
-        if quality is None and not (height == 0 or want_audio_only):
+        if quality is None and height != 0:
             avail = ", ".join(str(q.height) for q in quals)
-            raise RuntimeError(f"الدقة {height}p غير متوفرة. المتاح: {avail}")
+            raise RuntimeError(t("error.quality_unavailable", height=height, avail=avail))
         if quality:
-            console.print(f"🎞️ الجودة: [bold]{quality.height}p[/bold]")
+            console.print(t("quality.selected", height=f"[bold]{quality.height}[/bold]"))
     elif yes:
         quality = next((q for q in quals if q.height == 1080), quals[0] if quals else None)
     else:
@@ -173,7 +256,7 @@ def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefe
         else:
             want_audio_only = True
 
-    # 6) بناء الفورمات + سجل DB
+    # 6) بناء الفورمات + تقدير الحجم
     fmt, container, extra = build_format(dub, quality, keep_all_dubs=keep_all_dubs, prefer_h264=not prefer_av1, audio_only=want_audio_only)
     os.makedirs(output_dir, exist_ok=True)
     outtmpl = os.path.join(output_dir, "%(title).150B [%(id)s].%(ext)s")
@@ -181,6 +264,22 @@ def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefe
     if verbose:
         console.print(f"[dim]format={fmt} container={container} sort={extra.get('format_sort')}[/dim]")
 
+    show_estimate(estimate_size(dub, quality, keep_all_dubs=keep_all_dubs, audio_only=want_audio_only), container)
+
+    # 7) تخطي الموجود مسبقًا (إلا مع --overwrite)
+    existing = existing_output(output_dir, info.video_id, container=container)
+    if existing and not overwrite and cfg.get("skip_existing", True):
+        redo = (not yes) and confirm_overwrite(existing)
+        if not redo:
+            store.record_skip(
+                url, video_id=info.video_id, title=info.title,
+                lang=(dub.lang if dub else "all"), height=(quality.height if quality else None),
+                container=container, filepath=existing,
+            )
+            console.print(f"[yellow]{t('download.skipped', path=escape(existing))}[/yellow]")
+            return
+
+    # 8) سجل DB + التنزيل
     row_id = store.record_start(
         url, video_id=info.video_id, title=info.title,
         lang=(dub.lang if dub else "all"), height=(quality.height if quality else None), container=container,
@@ -198,7 +297,8 @@ def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefe
         "concurrent_fragments": int(cfg.get("concurrent_fragments", 4)),
     }
 
-    desc = f"⬇️ جارٍ التحميل [{dub.lang if dub else 'all'}|{(str(quality.height) + 'p') if quality else ('audio' if want_audio_only else 'best')}]"
+    qlabel = f"{quality.height}p" if quality else ("audio" if want_audio_only else "best")
+    desc = t("progress.downloading", lang=(dub.lang if dub else "all"), quality=qlabel)
     progress = make_progress()
     task = None
 
@@ -218,7 +318,7 @@ def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefe
         if ok:
             return
         store.record_attempt(row_id, store.STATUS_RETRIED, error=error)
-        console.print(f"[yellow]⚠️ فشلت المحاولة {attempt_no} — إعادة بعد {retry_wait}s (استكمال من حيث توقف)...[/yellow]")
+        console.print(f"[yellow]{t('download.retry_warning', attempt=attempt_no, wait=retry_wait)}[/yellow]")
 
     try:
         with progress:
@@ -236,9 +336,10 @@ def _run(url, lang, height, yes, output_dir, player_client, keep_all_dubs, prefe
     final_status = store.STATUS_RESUMED if (resumed or attempts > 1) else store.STATUS_SUCCESS
     store.record_attempt(row_id, final_status, filepath=final)
     fname = os.path.basename(final) if final else "—"
-    qtxt = f"{quality.height}p" if quality else ("صوت فقط" if want_audio_only else "الأفضل")
-    ltxt = dub.display if dub else "كل الدبلجات"
-    console.print(f"✅ [green]تم (محاولات: {attempts}):[/green] ./{output_dir}/{fname}   [{ltxt}][{qtxt}][{container}]")
+    qtxt = f"{quality.height}p" if quality else (t("value.audio_only") if want_audio_only else t("value.best"))
+    ltxt = dub.display if dub else t("value.all_dubs")
+    tags = escape(f"[{ltxt}][{qtxt}][{container}]")
+    console.print(f"[green]{t('download.done', attempts=attempts, dir=escape(output_dir), file=escape(fname), tags=tags)}[/green]")
 
 
 if __name__ == "__main__":

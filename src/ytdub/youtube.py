@@ -8,6 +8,7 @@ from __future__ import annotations
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
+from .i18n import t
 from .models import DubTrack, Quality, VideoInfo
 from .utils import classify_dub_kind, lang_display
 
@@ -37,9 +38,9 @@ def fetch_info(
     except DownloadError as e:
         raise _friendly_error(e) from e
     if info is None:
-        raise RuntimeError("تعذّر استخراج بيانات الفيديو (معلومات فارغة).")
+        raise RuntimeError(t("error.extract_empty"))
     if "entries" in info:  # قائمة تشغيل بالخطأ
-        raise RuntimeError("الرابط يشير إلى قائمة تشغيل وليس فيديو واحدًا. حمّل فيديو واحدًا.")
+        raise RuntimeError(t("error.playlist"))
     return VideoInfo(
         video_id=str(info.get("id") or ""),
         title=str(info.get("title") or "بدون عنوان"),
@@ -55,19 +56,14 @@ def _friendly_error(e: Exception) -> RuntimeError:
     msg = str(e)
     low = msg.lower()
     if "private" in low or "login" in low or "age" in low:
-        return RuntimeError("الفيديو خاص أو محذوف أو يحتاج تسجيل دخول/تحقق عمر.")
+        return RuntimeError(t("error.private"))
     if "429" in msg or "too many requests" in low or "confirm you're not a bot" in low:
-        return RuntimeError(
-            "يوتيوب قيّد الوصول مؤقتًا (429/bot-check). جرّب لاحقًا أو استخدم "
-            "--cookies-from-browser أو --player-client android."
-        )
+        return RuntimeError(t("error.rate_limited"))
     if "drm" in low:
-        return RuntimeError("هذا المحتوى محمي بـ DRM ولا يمكن تحميله.")
+        return RuntimeError(t("error.drm"))
     if "po token" in low or "sabr" in low:
-        return RuntimeError(
-            "يوتيوب طلب PO Token. حدّث yt-dlp إلى nightly وثبّت deno ثم جرّب --player-client android."
-        )
-    return RuntimeError(f"فشل استخراج البيانات: {msg[:300]}")
+        return RuntimeError(t("error.po_token"))
+    return RuntimeError(t("error.extract_failed", msg=msg[:300]))
 
 
 def _is_audio_only(f: dict) -> bool:
@@ -96,6 +92,7 @@ def group_dubs(formats: list[dict]) -> list[DubTrack]:
         is_default = any("original" in str(x.get("format_note") or "").lower() for x in items)
         best = max(items, key=lambda x: float(x.get("abr") or x.get("tbr") or 0))
         abr = best.get("abr") or best.get("tbr")
+        size = best.get("filesize") or best.get("filesize_approx")
         tracks.append(
             DubTrack(
                 index=0,
@@ -104,6 +101,7 @@ def group_dubs(formats: list[dict]) -> list[DubTrack]:
                 kind=kind if kind != "unknown" else ("original" if is_default else "dubbed"),
                 is_default=is_default,
                 abr=float(abr) if abr else None,
+                size_approx=int(size) if size else None,
                 sample_format_id=str(best.get("format_id") or ""),
             )
         )
@@ -144,9 +142,9 @@ def group_qualities(formats: list[dict]) -> list[Quality]:
         vc = str(f.get("vcodec") or "").split(".")[0]
         note = ""
         if h == 1080 and vc.startswith("avc"):
-            note = "موصى به ✅"
+            note = t("quals.note_recommended")
         elif h >= 2160 or vc.startswith(("av01", "vp09")):
-            note = "يحتاج مشغلًا حديثًا"
+            note = t("quals.note_modern")
         quals.append(
             Quality(
                 index=0,
@@ -206,3 +204,25 @@ def build_format(
             )
     extra["format_sort"] = ["vcodec:h264", "lang", "quality", "res", "fps", "acodec:aac"] if prefer_h264 else []
     return fmt, "mp4", extra
+
+
+def estimate_size(
+    dub: DubTrack | None,
+    quality: Quality | None,
+    keep_all_dubs: bool = False,
+    audio_only: bool = False,
+) -> int | None:
+    """يقدّر حجم المخرج بالبايت من حقول filesize المجمّعة — None عند غياب البيانات.
+
+    - keep_all_dubs → None (لا يمكن جمع كل المسارات بثقة).
+    - audio_only → حجم الصوت فقط.
+    - غير ذلك → حجم الفيديو + الصوت المختارين.
+    """
+    if keep_all_dubs:
+        return None
+    if audio_only:
+        return int(dub.size_approx) if dub and dub.size_approx else None
+    v = quality.size_approx if quality else None
+    a = dub.size_approx if dub else None
+    total = (v or 0) + (a or 0)
+    return int(total) if total else None

@@ -62,7 +62,9 @@ def test_download_retries_then_resumes(monkeypatch):
 
 def test_download_gives_up(monkeypatch):
     import ytdub.downloader as dl
+    from ytdub import i18n
 
+    i18n.set_lang("ar")
     monkeypatch.setattr(dl, "_attempt", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("dead")))
     monkeypatch.setattr(dl.time, "sleep", lambda s: None)
     try:
@@ -70,3 +72,37 @@ def test_download_gives_up(monkeypatch):
         raise AssertionError("should have raised")
     except RuntimeError as e:
         assert "بعد 3 محاولات" in str(e)
+
+
+def test_new_infra_defaults_present():
+    for key in ("skip_existing", "update_check_interval_hours", "ui_lang"):
+        assert key in config.DEFAULTS
+
+
+def test_store_get_skip_and_last_failed(tmp_path, monkeypatch):
+    cfg_dir = tmp_path / "ytdub"
+    monkeypatch.setattr(config, "app_dir", lambda: str(cfg_dir))
+    row = store.record_start("https://youtu.be/a", video_id="a", title="T", lang="ar", height=1080)
+    store.record_attempt(row, store.STATUS_FAILED, error="boom")
+    got = store.get(row)
+    assert got["status"] == store.STATUS_FAILED and got["attempts"] == 1
+    assert got["url"] == "https://youtu.be/a"
+    assert store.last_failed()["id"] == row
+    assert store.get(999999) is None
+
+    kid = store.record_skip("https://youtu.be/b", video_id="b", title="B", lang="en", height=720, container="mp4", filepath="/tmp/b.mp4")
+    skip = store.get(kid)
+    assert skip["status"] == store.STATUS_SKIPPED
+    assert skip["attempts"] == 0
+    assert skip["filepath"] == "/tmp/b.mp4"
+
+
+def test_update_check_interval_cache(tmp_path):
+    from ytdub import updater
+
+    d = str(tmp_path)
+    assert updater._should_check(d, 24) is True
+    updater._touch_stamp(d)
+    assert updater._should_check(d, 24) is False
+    assert updater._should_check(d, 0) is True
+    assert updater._should_check(None, 24) is True

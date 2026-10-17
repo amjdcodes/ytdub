@@ -13,6 +13,7 @@ class DubTrack:
     kind: str  # original | dubbed | auto-dub | descriptive | unknown
     is_default: bool = False
     abr: float | None = None
+    size_approx: int | None = None
     sample_format_id: str = ""
 
 

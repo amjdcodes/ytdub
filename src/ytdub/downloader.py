@@ -8,6 +8,8 @@ import time
 
 from yt_dlp import YoutubeDL
 
+from .i18n import t
+
 FFMPEG_INSTALL_HINT = {
     "Linux": "sudo apt install ffmpeg  (أو sudo dnf install ffmpeg)",
     "Darwin": "brew install ffmpeg",
@@ -18,13 +20,9 @@ FFMPEG_INSTALL_HINT = {
 def ensure_ffmpeg(audio_only: bool = False) -> None:
     if shutil.which("ffmpeg"):
         return
-    sys = platform.system()
-    hint = FFMPEG_INSTALL_HINT.get(sys, "https://ffmpeg.org/download.html")
-    raise RuntimeError(
-        "تعذّر العثور على ffmpeg وهو إلزامي للدمج.\n"
-        f"ثبّته ثم أعد التشغيل. ({sys}: {hint})"
-        "\nملاحظة: لا تثبّت حزمة PyPI المسماة ffmpeg — المطلوب الثنائي الحقيقي."
-    )
+    sys_name = platform.system()
+    hint = FFMPEG_INSTALL_HINT.get(sys_name, "https://ffmpeg.org/download.html")
+    raise RuntimeError(t("error.ffmpeg_missing", sys=sys_name, hint=hint))
 
 
 def _attempt(
@@ -120,4 +118,4 @@ def download(
                 on_attempt(attempt, False, last_error)
             if attempt < total_tries:
                 time.sleep(retry_wait)
-    raise RuntimeError(f"فشل التنزيل بعد {total_tries} محاولات. آخر خطأ: {last_error}")
+    raise RuntimeError(t("error.download_failed", tries=total_tries, err=last_error))

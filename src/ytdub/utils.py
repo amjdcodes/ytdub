@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+
 from urllib.parse import urlparse
+
+from .i18n import t
 
 LANG_NAMES = {
     "ar": "العربية",
@@ -22,7 +26,6 @@ LANG_NAMES = {
     "nl": "Nederlands",
     "pl": "Polski",
     "id": "Bahasa Indonesia",
-    "und": "غير محدد",
 }
 
 YOUTUBE_HOSTS = {
@@ -72,6 +75,8 @@ def format_duration(sec: int | None) -> str:
 
 
 def lang_display(lang: str) -> str:
+    if lang == "und":
+        return t("value.unknown_lang")
     return LANG_NAMES.get(lang, lang)
 
 
@@ -90,10 +95,55 @@ def classify_dub_kind(format_note: str, language_raw: str = "") -> str:
     return "unknown"
 
 
-KIND_AR = {
-    "original": "أصلي ✅",
-    "dubbed": "مدبلج",
-    "auto-dub": "تلقائي 🤖",
-    "descriptive": "وصفي",
-    "unknown": "—",
-}
+def kind_label(kind: str) -> str:
+    """اسم نوع المسار بلغة الواجهة الحالية."""
+    return t(f"kind.{kind}") if kind in ("original", "dubbed", "auto-dub", "descriptive") else t("kind.unknown")
+
+
+def existing_output(output_dir: str, video_id: str, container: str = "") -> str | None:
+    """يبحث عن ملف منزَّل سابقًا لنفس المعرّف في مجلد الإخراج.
+
+    القالب الافتراضي يضمّن «[video_id]» في الاسم؛ نتجاهل ملفات .part الجزئية.
+    """
+    if not video_id or not os.path.isdir(output_dir):
+        return None
+    needle = f"[{video_id}]"
+    for name in os.listdir(output_dir):
+        if name.endswith(".part"):
+            continue
+        if container:
+            if not name.endswith(f"{needle}.{container}"):
+                continue
+        elif needle not in name:
+            continue
+        elif name.rsplit(needle, 1)[-1].startswith(".f"):
+            continue  # شظية وسيطة مثل .f299.mp4 وليست الملف المدمج
+        return os.path.join(output_dir, name)
+    return None
+
+
+def read_batch_file(path: str) -> list[str]:
+    """يقرأ ملف روابط: سطر لكل رابط، ويتجاهل الفارغ والتعليقات (#)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = f.readlines()
+    except OSError as e:
+        raise RuntimeError(f"تعذّر قراءة ملف الدفعات: {e}")
+    urls: list[str] = []
+    for line in raw:
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        urls.append(s)
+    return urls
+
+
+def retry_selection(row: dict) -> dict:
+    """يحوّل صف سجل إلى وسائط تشغيل: (lang, height, keep_all_dubs, audio_only)."""
+    keep_all = (row.get("lang") or "") == "all"
+    return {
+        "lang": None if keep_all else (row.get("lang") or None),
+        "height": row.get("height"),
+        "keep_all_dubs": keep_all,
+        "audio_only": (row.get("container") or "") == "m4a",
+    }

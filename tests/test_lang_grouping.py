@@ -22,3 +22,9 @@ def test_single_lang_becomes_original():
     fmts = [f for f in _formats() if (f.get("language") or "") == "ar"]
     dubs = group_dubs(fmts)
     assert len(dubs) == 1 and dubs[0].is_default
+
+
+def test_group_dubs_reads_audio_size():
+    fmts = [{"acodec": "mp4a.40.2", "vcodec": "none", "language": "ar", "format_note": "original", "abr": 128, "filesize": 4_000_000}]
+    dubs = group_dubs(fmts)
+    assert dubs[0].size_approx == 4_000_000

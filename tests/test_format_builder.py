@@ -1,7 +1,8 @@
 import json
 import os
 
-from ytdub.youtube import build_format, group_dubs, group_qualities
+from ytdub.models import DubTrack, Quality
+from ytdub.youtube import build_format, estimate_size, group_dubs, group_qualities
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures", "sample_info.json")
 
@@ -37,3 +38,21 @@ def test_build_format_audio_only():
     ar = next(d for d in group_dubs(fmts) if d.lang == "ar")
     fmt, container, _ = build_format(ar, None, audio_only=True)
     assert fmt.startswith("ba[language=ar]")
+
+
+def _dub(size):
+    return DubTrack(index=1, lang="ar", display="العربية", kind="original", size_approx=size)
+
+
+def test_estimate_size_sums_video_and_audio():
+    q = Quality(index=1, height=1080, size_approx=95_000_000)
+    assert estimate_size(_dub(5_000_000), q) == 100_000_000
+
+
+def test_estimate_size_audio_only_and_keep_all():
+    assert estimate_size(_dub(5_000_000), None, audio_only=True) == 5_000_000
+    assert estimate_size(_dub(5_000_000), None, keep_all_dubs=True) is None
+
+
+def test_estimate_size_none_without_data():
+    assert estimate_size(_dub(None), Quality(index=1, height=720)) is None
