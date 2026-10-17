@@ -7,7 +7,7 @@
 
 > **A bilingual terminal app that downloads a YouTube video with the dub language and quality you choose.**
 
-[What It Does](#what-it-does) · [Features](#features) · [Themes & Responsive UI](#themes-and-responsive-ui) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Usage](#usage) · [Configuration](#configuration) · [Testing](#testing-and-quality) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing)
+[What It Does](#what-it-does) · [Features](#features) · [Themes & Responsive UI](#themes-and-responsive-ui) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Clone and Install](#clone-and-install) · [Usage](#usage) · [Configuration](#configuration) · [Testing](#testing-and-quality) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing)
 
 ---
 
@@ -206,21 +206,62 @@ ytdub/
 - `ffmpeg` and `ffprobe` as real system binaries. The PyPI package named `ffmpeg` does **not** count.
 - `deno` or `node` recommended for full YouTube support (PO Token and SABR cases).
 
-### Installation
-
 ```bash
-# 1) Install ffmpeg (required)
+# Install ffmpeg with your platform package manager
 sudo apt install ffmpeg        # Ubuntu / Debian
 sudo dnf install ffmpeg        # Fedora
 brew install ffmpeg            # macOS
-choco install ffmpeg           # Windows
+choco install ffmpeg           # Windows (Chocolatey)
+```
 
-# 2) Install the tool
+Confirm the binaries are visible before installing the Python package:
+
+```bash
+ffmpeg -version
+ffprobe -version
+```
+
+### Clone and Install
+
+```bash
+# 1) Clone the repository
+git clone https://github.com/amjdcodes/ytdub.git
+cd ytdub
+
+# 2) Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Windows PowerShell:
+# .venv\Scripts\Activate.ps1
+# Windows CMD:
+# .venv\Scripts\activate.bat
+
+# 3) Upgrade pip and install the project with its runtime dependencies
+python -m pip install --upgrade pip
 pip install -e .
 
-# 3) Verify
+# 4) Optional: install the test runner for development
+pip install pytest
+
+# 5) Verify the command and the ffmpeg binary
 ytdub --help
+ytdub --version
 ffmpeg -version
+```
+
+`pip install -e .` reads `pyproject.toml` and installs the runtime stack
+(`yt-dlp[default]`, `rich`, `click`, and `questionary`). It also registers the
+`ytdub` command inside the active virtual environment.
+
+The matching `ffmpeg` binary is a system dependency and is not installed by
+`pip`. Install it first using the command for your platform in
+[Prerequisites](#prerequisites).
+
+To run the test suite from the cloned repository:
+
+```bash
+PYTHONPATH=src python -m pytest tests/ -q
 ```
 
 ### First Download
