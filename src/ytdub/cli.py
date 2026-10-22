@@ -15,8 +15,10 @@ from rich.traceback import install as rich_traceback
 
 from . import __version__
 from . import config as app_config
+from . import preferences
 from . import store
 from . import updater
+from .autopick import PICK_CAPPED, PICK_EXACT, PICK_UPGRADED, find_dub, pick_quality
 from .downloader import download, ensure_ffmpeg
 from .i18n import TAG_ERR, TAG_WARN, set_lang, t
 from .themes import THEME_NAMES, theme_label
@@ -69,20 +71,43 @@ HELP_NOTE = (
 @click.option("--ui-lang", type=click.Choice(["ar", "en"]), default=None, help="تغيير لغة الواجهة وحفظها ثم خروج / Set and save the interface language, then exit.")
 @click.option("--theme", "theme_name", type=click.Choice(list(THEME_NAMES)), default=None, help="تعيين تصميم الواجهة وحفظه: classic/midnight/sand / Set and save the interface theme.")
 @click.option("--theme-menu", is_flag=True, help="قائمة تفاعلية لمعاينة واختيار التصميم / Interactive theme picker with live preview.")
+@click.option("--smart/--no-smart", "smart_flag", default=None, help="تفعيل/تعطيل الاختيار الذكي من تفضيلاتك / Enable or disable smart picks from learned preferences.")
 @click.option("--reset-config", is_flag=True, help="إعادة معالج الإعداد من جديد / Re-run the setup wizard.")
 @click.option("--verbose", is_flag=True, help="إظهار تفاصيل تقنية للأخطاء / Technical error details.")
 @click.version_option(__version__, "--version", "-V")
-def main(url, url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, history, history_limit, retry_id, retry_last, batch_file, overwrite, show_config, ui_lang, theme_name, theme_menu, reset_config, verbose):
+def main(url, url_opt, lang, height, yes, output_dir, player_client, keep_all_dubs, prefer_av1, audio_only, cookies_file, cookies_from_browser, history, history_limit, retry_id, retry_last, batch_file, overwrite, show_config, ui_lang, theme_name, theme_menu, smart_flag, reset_config, verbose):
     if verbose:
         rich_traceback(show_locals=False)
     try:
+        keeps_going = any((url, url_opt, batch_file, retry_id is not None, retry_last, history, show_config, ui_lang, theme_menu, reset_config))
         if theme_name:
             cfg, _ = app_config.ensure(console, non_interactive=True)
             chosen = set_theme(theme_name)
             _save_theme_choice(cfg, chosen)
-            keeps_going = any((url, url_opt, batch_file, retry_id is not None, retry_last, history, show_config, ui_lang, theme_menu, reset_config))
-            if not keeps_going:
+            if not keeps_going and smart_flag is None:
                 show_theme_preview()
+                return
+        if smart_flag is not None:
+            cfg, _ = app_config.ensure(console, non_interactive=True)
+            set_theme(cfg.get("ui_theme"))
+            cfg["smart_picks"] = bool(smart_flag)
+            path = app_config.save(cfg)
+            console.print(t("smart.enabled" if smart_flag else "smart.disabled", path=escape(path)))
+            if smart_flag:
+                _seed_smart_preferences()
+                pref_lang = preferences.preferred_lang()
+                pref_height = preferences.preferred_height()
+                if pref_lang or pref_height is not None:
+                    console.print(
+                        t(
+                            "smart.current",
+                            lang=pref_lang or "—",
+                            height=f"{pref_height}p" if pref_height else "—",
+                        )
+                    )
+                else:
+                    console.print(t("smart.no_preference"))
+            if not keeps_going:
                 return
         if theme_menu:
             cfg, _ = app_config.ensure(console, non_interactive=True)
@@ -136,6 +161,14 @@ def _save_theme_choice(cfg, chosen: str) -> str:
     path = app_config.save(cfg)
     console.print(t("theme.saved", name=f"[bold]{theme_label(chosen)}[/bold]", path=escape(path)))
     return path
+
+
+def _seed_smart_preferences() -> None:
+    """يهيّئ التفضيلات من السجل القديم مرة واحدة فقط."""
+    if not preferences.is_empty():
+        return
+    langs, heights, last_lang, last_height = store.selection_counts()
+    preferences.seed(langs, heights, last_lang, last_height)
 
 
 def _retry_from_history(retry_id, retry_last, output_dir, player_client, prefer_av1, cookies_file, cookies_from_browser, verbose, overwrite) -> None:
@@ -258,7 +291,19 @@ def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_al
     if quals:
         show_qualities_table(quals)
 
+    smart_enabled = bool(cfg.get("smart_picks")) and not keep_all_dubs
+    favorite_lang = None
+    favorite_height = None
+    if smart_enabled:
+        _seed_smart_preferences()
+        favorite_lang = preferences.preferred_lang()
+        favorite_height = preferences.preferred_height()
+        if not favorite_lang and favorite_height is None:
+            console.print(t("smart.no_preference"))
+
     # 4) اختيار الدبلجة
+    dub = None
+    dub_from_user = False
     if keep_all_dubs:
         dub = None
     elif lang:
@@ -266,16 +311,25 @@ def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_al
         if dub is None:
             avail = ", ".join(d.lang for d in dubs)
             raise RuntimeError(t("error.dub_unavailable", lang=lang, avail=avail))
+        dub_from_user = True
         console.print(t("dub.selected", display=f"[bold]{escape(dub.display)}[/bold]", lang=dub.lang))
+    elif smart_enabled and favorite_lang:
+        dub = find_dub(dubs, favorite_lang)
+        if dub is None:
+            avail = ", ".join(d.lang for d in dubs) or "—"
+            raise RuntimeError(t("smart.dub_missing", lang=favorite_lang, avail=avail))
+        console.print(t("smart.dub_selected", display=f"[bold]{escape(dub.display)}[/bold]", lang=dub.lang))
     elif yes:
         dub = next((d for d in dubs if d.is_default), dubs[0])
         console.print(t("dub.default", display=f"[bold]{escape(dub.display)}[/bold]"))
     else:
         dub = ask_dub(dubs)
+        dub_from_user = len(dubs) > 1
 
     # 5) اختيار الجودة (الصوت فقط يتجاوز الاختيار تمامًا)
     want_audio_only = bool(audio_only)
     quality = None
+    quality_from_user = False
     if keep_all_dubs or want_audio_only:
         quality = None
     elif height is not None:
@@ -283,15 +337,30 @@ def _process_url(url, cfg, output_dir, lang, height, yes, player_client, keep_al
         if quality is None and height != 0:
             avail = ", ".join(str(q.height) for q in quals)
             raise RuntimeError(t("error.quality_unavailable", height=height, avail=avail))
+        quality_from_user = quality is not None
         if quality:
             console.print(t("quality.selected", height=f"[bold]{quality.height}[/bold]"))
+    elif smart_enabled and favorite_height is not None:
+        quality, pick_kind = pick_quality(quals, favorite_height)
+        if quality is not None and pick_kind == PICK_EXACT:
+            console.print(t("smart.quality_selected", height=f"[bold]{quality.height}[/bold]"))
+        elif quality is not None and pick_kind == PICK_UPGRADED:
+            console.print(t("smart.quality_upgraded", requested=favorite_height, height=quality.height))
+        elif quality is not None and pick_kind == PICK_CAPPED:
+            console.print(t("smart.quality_capped", requested=favorite_height, height=quality.height))
     elif yes:
         quality = next((q for q in quals if q.height == 1080), quals[0] if quals else None)
     else:
         if quals:
             quality, want_audio_only = ask_quality(quals)
+            quality_from_user = quality is not None
         else:
             want_audio_only = True
+
+    record_lang = dub.lang if (dub_from_user and dub) else None
+    record_height = quality.height if (quality_from_user and quality) else None
+    if record_lang or record_height:
+        preferences.record_choice(lang=record_lang, height=record_height)
 
     # 6) بناء الفورمات + تقدير الحجم
     fmt, container, extra = build_format(dub, quality, keep_all_dubs=keep_all_dubs, prefer_h264=not prefer_av1, audio_only=want_audio_only)

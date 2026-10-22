@@ -4,7 +4,7 @@
 
 `ytdub` is a Python CLI (`yt-dlp` + system `ffmpeg`) that downloads one YouTube video
 in a user-picked dub language and resolution, merging separate DASH streams into a single file.
-It ships a bilingual Arabic/English interface with three responsive themes. Run: `pip install -e .` then `ytdub --url "URL" --lang ar --height 1080 --yes`, or `PYTHONPATH=src python -m ytdub`.
+It ships a bilingual Arabic/English interface with three responsive themes and optional smart picks learned from user choices. Run: `pip install -e .` then `ytdub --url "URL" --lang ar --height 1080 --yes`, or `PYTHONPATH=src python -m ytdub`.
 Entrypoints are the `ytdub` console script (`ytdub.cli:main` in `pyproject.toml`) and `src/ytdub/__main__.py`; both funnel into `cli.main`, which dispatches to `cli._run` (single URL), `cli._run_batch` (`--batch`) or `cli._retry_from_history` (`--retry`), all sharing `cli._process_url`.
 
 ## 2. Folder structure
@@ -18,9 +18,11 @@ ytdub/
 │   ├── cli.py                  # click options + setup/`_process_url` orchestration (+ --history/--batch/--retry/--overwrite/--show-config/--reset-config)
 │   ├── youtube.py              # ONLY yt-dlp layer: fetch_info / group_dubs / group_qualities / build_format / estimate_size
 │   ├── downloader.py           # ensure_ffmpeg + single _attempt + download() outer retry loop resuming .part
-│   ├── config.py               # first-run wizard + config.json load/save (app_dir)
+│   ├── config.py               # first-run wizard + config.json load/save (app_dir) incl. smart_picks
 │   ├── updater.py              # PyPI check + pip upgrade for yt-dlp/rich/click/questionary; timestamped cache in state_dir; never raises
-│   ├── store.py                # SQLite history.db: pending/success/failed/resumed/retried/skipped + attempts
+│   ├── store.py                # SQLite history.db: statuses + attempts + selection_counts() for smart seeding
+│   ├── preferences.py          # preferences.json: learned dub/quality counts; safe local reads/writes
+│   ├── autopick.py             # pure rules: find learned dub, choose quality (exact → higher → highest)
 │   ├── i18n.py                 # AR/EN message catalog: set_lang + t(key); stdlib-only leaf
 │   ├── themes.py               # 3 UI palettes (classic/midnight/sand) + aliases/labels; data only
 │   ├── ui.py                   # rich tables/prompts/estimate/progress; responsive layout + live theme switch
@@ -31,6 +33,7 @@ ytdub/
 │   ├── test_format_builder.py  # quality grouping + format-string cases + estimate_size
 │   ├── test_config_store.py    # config merge + store lifecycle + version compare + retry loop (stubbed _attempt)
 │   ├── test_i18n.py            # AR/EN key parity + language switch + ui_lang migration
+│   ├── test_smart.py           # learned preferences, seeding, quality policy, CLI flag
 │   ├── test_themes.py          # palette parity, theme switch, responsive breakpoints, preview
 │   ├── test_utils.py           # existing_output / read_batch_file / retry_selection
 │   └── fixtures/sample_info.json  # anonymized yt-dlp `formats` snapshot (offline tests)
@@ -45,29 +48,31 @@ ytdub/
 __main__.py → cli.py → config.py (stdlib: json/os) ──→ i18n.py, themes.py (labels only)
                │     → updater.py (stdlib: urllib/subprocess/importlib.metadata) ──→ i18n.py
                │     → store.py ──→ config.app_dir (path only) + i18n
+               │     → preferences.py ──→ config.app_dir (path only) + stdlib json/os
+               │     → autopick.py ──→ models.py (pure rules)
                │     → youtube.py ──→ models.py, utils.py, i18n + yt-dlp
                │     → downloader.py ──→ yt-dlp + i18n (no other internal imports)
                │     → ui.py ──→ themes.py, models.py, utils.py, i18n (leaf) + rich/questionary
                │     → utils.py ──→ i18n (leaf, stdlib only)
                │     → i18n.py (leaf, stdlib only)
 themes.py → i18n.py (labels/descriptions; no rich import)
-tests/ → youtube.py + downloader._attempt (stubbed) + config/store (app_dir monkeypatched); never cli/network
+tests/ → youtube.py + downloader._attempt (stubbed) + config/store/preferences (app_dir monkeypatched) + CliRunner for UI flags; never network
 ```
 
 Layer boundaries (enforced, see `AGENTS.md` / `CONTRIBUTING.md`):
 `cli` (orchestration) → `youtube` (extraction) + `downloader` (side effects) + `ui` (rendering).
 `models`, `utils`, and `i18n` are leaves: imported by others, import nothing internal.
 `youtube.py` and `downloader.py` each own one `yt-dlp` usage (inspect vs. download); neither imports the other.
-`store.py` reaches config through `config.app_dir()` at call time (not a bound import) so tests can patch it.
+`store.py` and `preferences.py` reach config through `config.app_dir()` at call time (not a bound import) so tests can patch it; `autopick.py` is pure over `models.py`.
 `i18n.py` holds every user-facing string; modules call `t(key, ...)` and never embed Arabic/English text.
 
 ## 4. Data flow
 
-1. `cli._setup` calls `config.ensure`, which also selects the interface language: a fresh interactive install runs the wizard (language question first, then theme) and a fresh `--yes` run writes Arabic + classic defaults; an existing config missing `ui_lang` (older version) is asked **only** that question and merged without repeating the rest. `config.ensure` then calls `i18n.set_lang(cfg["ui_lang"])`, `cli._setup` calls `ui.set_theme(cfg["ui_theme"])`, and `updater.run_startup_check` upgrades outdated tools — throttled by a timestamp in `state_dir` (`update_check_interval_hours`), never raising and silent offline.
+1. `cli._setup` calls `config.ensure`, which also selects the interface language: a fresh interactive install runs the wizard (language first, then theme, retry/update, smart picks, output) and a fresh `--yes` run writes Arabic + classic + smart-off defaults; an existing config missing `ui_lang` (older version) is asked **only** that question and merged without repeating the rest. `config.ensure` then calls `i18n.set_lang(cfg["ui_lang"])`, `cli._setup` calls `ui.set_theme(cfg["ui_theme"])`, and `updater.run_startup_check` upgrades outdated tools — throttled by a timestamp in `state_dir` (`update_check_interval_hours`), never raising and silent offline.
 2. `cli._run` / `cli._run_batch` then call `downloader.ensure_ffmpeg` once (fails fast if the binary is missing). `--retry`/`--retry-last` skip setup concerns by reloading a stored row.
 3. `cli._process_url` validates the URL via `utils.is_youtube_url`, then `youtube.fetch_info` extracts metadata without downloading; on ≤1 dub it retries once with `player-client android`.
 4. `youtube.group_dubs` / `group_qualities` collapse raw `formats` into `DubTrack` / `Quality` lists (each carrying `size_approx`) for display.
-5. `ui` shows video panel + dub/quality tables; `cli` resolves picks from flags (`--lang/--height/--yes/--keep-all-dubs/--audio-only`) or prompts.
+5. `ui` shows video panel + dub/quality tables; `cli` resolves picks from explicit flags (`--lang/--height/--keep-all-dubs/--audio-only`), smart preferences (`smart_picks`), `--yes` defaults, or prompts. Smart picks stop on a missing learned dub; missing quality goes to the nearest higher, then the highest available.
 6. `youtube.build_format` emits `(format_string, container, extra)` — `mp4`/`m4a` normally, `mkv` + multistreams for `--keep-all-dubs`. `youtube.estimate_size` reports the expected bytes and `ui.show_estimate` prints it.
 7. `utils.existing_output` looks for a finished `[<id>].<container>` file in the output dir; if present, `skip_existing` (and no `--overwrite`) records a `skipped` row via `store.record_skip` and stops — otherwise a `store.record_start` row (pending) is opened.
 8. `downloader.download` runs the outer retry loop (`max_retries` from config): each failed attempt records `retried` + sleeps, each rerun resumes the `.part` via `continuedl`; final state is `success` or `resumed` (attempts>1) or `failed`, reported as `(path, attempts, resumed)`.
@@ -91,6 +96,7 @@ Failures: bad URL / private-playlist-DRM / HTTP 429-PO-Token each abort with a s
 - User-facing notation is deliberately emoji-free and lives in `i18n.py`: `OK ·` / `ERR ·` / `WARN ·` / `RETRY ·` / `SKIP ·` / `INFO ·` for events and `◆` / `›` / `·` / `→` for structure. Plain text tags survive every font, terminal, and pipe, and `tests/test_i18n.py` rejects emoji/pictograph ranges to prevent regressions.
 - Layout responsiveness is computed in `ui.py` from `console.size.width`: `compact` (<62), `regular` (<96), `wide` (>=96), with `MAX_CONTENT_WIDTH=110` to keep long lines readable. Narrow layouts drop secondary columns (dub code, FPS, codec, note) while essentials stay; the preview uses the same functions as real runs.
 - Sizing is derived from `filesize`/`filesize_approx` already present on the raw formats, kept in `models` (`Quality.size_approx`, `DubTrack.size_approx`) and summed by `youtube.estimate_size` — no extra network call.
+- Smart picks are local and explicit: `preferences.py` keeps counts in `preferences.json`, `autopick.py` owns the pure matching/upgrade rules, and `cli.py` only wires them into selection. Only user-origin choices are recorded; auto picks never reinforce themselves. A missing learned dub is a hard stop (no silent fallback); quality follows exact → nearest higher → highest available. Explicit `--lang`/`--height` always win, `--keep-all-dubs` bypasses smart picks, and `--audio-only` only uses the learned dub. First enable seeds from successful history once, so existing users start with their real habits; count ties go to the most recent choice.
 - Skip-existing keys off the `[<video_id>]` token in the output filename (helpers in `utils.existing_output`), avoiding re-extraction to learn the final name; `--overwrite` / `skip_existing` decide the policy.
 - `updater` stays decoupled from `config` by receiving `state_dir` as a parameter (cli passes `os.path.dirname(config_path())`), so the timestamp cache is testable without importing config.
 - `--batch` and `--retry` are thin drivers over the same `_process_url`, so single-URL behavior and history replay never diverge; retry mapping is a pure helper (`utils.retry_selection`) rather than duplicated logic.
@@ -107,6 +113,7 @@ Failures: bad URL / private-playlist-DRM / HTTP 429-PO-Token each abort with a s
 | Fix dub/quality detection or `-f` strings | `src/ytdub/youtube.py` + `tests/test_lang_grouping.py` / `tests/test_format_builder.py` |
 | Change download, merge, retries, or ffmpeg check | `src/ytdub/downloader.py` |
 | Change settings, wizard, or config keys | `src/ytdub/config.py` + `tests/test_config_store.py` |
+| Smart-pick learning, seeding, or quality policy | `src/ytdub/preferences.py` + `src/ytdub/autopick.py` + `src/ytdub/cli.py` + `tests/test_smart.py` |
 | Interface language selection / `ui_lang` migration | `src/ytdub/config.py` + `src/ytdub/i18n.py` + `tests/test_i18n.py` |
 | Add/change a theme or palette | `src/ytdub/themes.py` + `src/ytdub/ui.py` + `tests/test_themes.py` |
 | Theme switching, banner, responsive breakpoints | `src/ytdub/ui.py` + `src/ytdub/cli.py` |

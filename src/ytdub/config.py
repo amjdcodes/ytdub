@@ -16,6 +16,7 @@ from .themes import DEFAULT_THEME, THEME_NAMES, normalize_theme, theme_descripti
 DEFAULTS: dict = {
     "ui_lang": "ar",
     "ui_theme": DEFAULT_THEME,
+    "smart_picks": False,
     "resume_on_failure": True,
     "max_retries": 5,
     "retry_wait_seconds": 5,
@@ -121,7 +122,7 @@ def _ask_yes_no(console, question: str, default: bool) -> bool:
     hint = "Y/n" if default else "y/N"
     while True:
         try:
-            raw = console.input(f"{question} [{hint}]: ").strip().lower()
+            raw = console.input(f"{question} ({hint}): ").strip().lower()
         except (KeyboardInterrupt, EOFError):
             raise RuntimeError(t("error.setup_cancelled"))
         if raw == "":
@@ -167,6 +168,7 @@ def first_run_wizard(console) -> dict:
         cfg["retry_wait_seconds"] = _ask_int(console, t("wizard.retry_wait_q"), 5, 1, 120)
     cfg["auto_update_check"] = _ask_yes_no(console, t("wizard.update_q"), True)
     cfg["auto_update_install"] = cfg["auto_update_check"]
+    cfg["smart_picks"] = _ask_yes_no(console, t("wizard.smart_q"), False)
     try:
         raw = console.input(t("wizard.output_q")).strip()
     except (KeyboardInterrupt, EOFError):

@@ -7,7 +7,7 @@
 
 > **A bilingual terminal app that downloads a YouTube video with the dub language and quality you choose.**
 
-[What It Does](#what-it-does) · [Features](#features) · [Themes & Responsive UI](#themes-and-responsive-ui) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Clone and Install](#clone-and-install) · [Usage](#usage) · [Configuration](#configuration) · [Testing](#testing-and-quality) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing)
+[What It Does](#what-it-does) · [Features](#features) · [Themes & Responsive UI](#themes-and-responsive-ui) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Clone and Install](#clone-and-install) · [Usage](#usage) · [Smart Picks](#smart-picks) · [Configuration](#configuration) · [Testing](#testing-and-quality) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing)
 
 ---
 
@@ -34,6 +34,7 @@ in Arabic and English, with three visual themes that adapt to the terminal width
 
 - **Arabic and English UI** — choose the interface language on first run; saved as `ui_lang` and switchable with `--ui-lang`.
 - **Three interface themes** — Classic (adaptive terminal colors), Midnight (soft blue for dark terminals), and Sand (warm tones for light terminals). Saved as `ui_theme`, switchable with `--theme`, or previewed interactively with `--theme-menu`.
+- **Smart picks** — learns your dub and quality choices locally; when enabled, it selects them automatically. A missing favorite dub stops the run, while a missing quality is upgraded to the nearest higher option.
 - **Responsive layout** — tables and panels follow the terminal width (`compact` / `regular` / `wide`), drop secondary columns when space is tight, and cap at a comfortable reading width.
 - **Eye-friendly design** — semantic theme styles, soft accents, and contrast tuned for each background; no raw ANSI colors scattered through the flow.
 - **Developer notation, no emoji** — statuses use plain log-style tags (`OK ·`, `ERR ·`, `WARN ·`, `RETRY ·`, `SKIP ·`, `INFO ·`) with geometric markers (`◆`, `›`, `·`, `→`), so output stays consistent in every terminal and pipe.
@@ -150,6 +151,8 @@ non-interactively.
 | Updates | PyPI version check and self-upgrade | `updater.py` |
 | History | SQLite log of every download and its status | `store.py` |
 | i18n | Arabic/English message catalog and language switch | `i18n.py` |
+| Preferences | Local learned dub/quality counts | `preferences.py` |
+| Auto-pick | Learned dub matching and quality upgrades | `autopick.py` |
 | Helpers | URL validation, formatting, language names, batch parsing, existing-file detection | `utils.py` |
 
 ### Design Rules
@@ -180,12 +183,15 @@ ytdub/
 │   ├── updater.py              # PyPI check and self-upgrade
 │   ├── store.py                # SQLite download history
 │   ├── i18n.py                 # Arabic/English message catalog
+│   ├── preferences.py          # Local learned dub/quality counts
+│   ├── autopick.py             # Matching and quality-upgrade rules
 │   └── utils.py                # URL rules, formatting, batch helpers
 ├── tests/                      # Offline test suite
 │   ├── test_lang_grouping.py
 │   ├── test_format_builder.py
 │   ├── test_config_store.py
 │   ├── test_i18n.py
+│   ├── test_smart.py           # preferences, auto-pick rules, CLI flag
 │   ├── test_themes.py
 │   ├── test_utils.py
 │   └── fixtures/sample_info.json
@@ -277,9 +283,11 @@ ytdub "https://www.youtube.com/watch?v=XXXX"
 PYTHONPATH=src python -m ytdub "https://www.youtube.com/watch?v=XXXX"
 ```
 
-On first run the wizard asks for the interface language, then the theme, then the retry and
-update preferences. Everything is saved in `~/.config/ytdub/config.json` on Linux and macOS,
-or `%APPDATA%/ytdub/config.json` on Windows. Later runs reuse the saved settings.
+On first run the wizard asks for the interface language, the theme, retry/update
+preferences, and whether to enable smart picks. Everything is saved in
+`~/.config/ytdub/config.json` on Linux and macOS, or `%APPDATA%/ytdub/config.json` on
+Windows. Learned picks are stored beside it in `preferences.json`. Later runs reuse the
+saved settings.
 
 If an older `config.json` is missing `ui_lang`, `ytdub` asks only that question and keeps the
 rest of the file untouched. A missing `ui_theme` silently falls back to `classic`.
@@ -376,6 +384,44 @@ ytdub --retry-last       # or replay the newest failure
 
 ---
 
+## Smart Picks
+
+Smart picks turn your own choices into defaults. Every interactive pick, or an
+explicit `--lang` / `--height`, is counted locally in `preferences.json` next to
+`config.json`. When the feature is enabled, the most frequent choice becomes the
+automatic pick for future runs; ties go to your most recent choice. On the first
+enable, existing successful history is used to seed the counts, so the tool does
+not start from zero. Nothing leaves your machine.
+
+```bash
+# Enable and persist smart picks
+ytdub --smart
+
+# Disable and go back to prompting
+ytdub --no-smart
+
+# Enable for this run and continue downloading
+ytdub --smart --url "URL"
+```
+
+The selection rules are intentionally strict and predictable:
+
+| Situation | Behaviour |
+|---|---|
+| Learned dub is available | Selected automatically |
+| Learned dub is missing | The run stops with an error listing available dubs; no silent fallback |
+| Learned quality is available | Selected automatically |
+| Learned quality is missing | The nearest higher quality is chosen |
+| No quality is higher than the learned one | The highest available quality is chosen, with a warning |
+| `--lang` or `--height` is passed | The explicit flag wins and is recorded as the new preference |
+| `--keep-all-dubs` is used | Smart picking is bypassed because no single dub/quality is selected |
+| `--audio-only` is used | The learned dub is used; the quality step is skipped |
+
+Only choices that come from you are recorded. Automatic smart picks are not fed
+back into the counters, so the preference does not drift on its own.
+
+---
+
 ## Configuration
 
 Settings live in `~/.config/ytdub/config.json` (Linux/macOS) or
@@ -386,6 +432,7 @@ Settings live in `~/.config/ytdub/config.json` (Linux/macOS) or
 |---|---|---|
 | `ui_lang` | `"ar"` | Interface language: `"ar"` or `"en"` |
 | `ui_theme` | `"classic"` | Visual theme: `"classic"`, `"midnight"`, or `"sand"` |
+| `smart_picks` | `false` | Learn your dub/quality choices and select them automatically |
 | `resume_on_failure` | `true` | Retry failed downloads, resuming from `.part` |
 | `max_retries` | `5` | Retries after the first attempt (1–20) |
 | `retry_wait_seconds` | `5` | Wait between attempts (1–120 seconds) |
@@ -406,11 +453,13 @@ Manage configuration with:
 ytdub --ui-lang en       # switch to English and exit
 ytdub --ui-lang ar       # switch to Arabic and exit
 ytdub --theme midnight   # apply and save a theme
+ytdub --smart            # enable learned automatic picks
+ytdub --no-smart         # disable automatic picks
 ytdub --show-config      # print values and the config path
 ytdub --reset-config     # re-run the first-run wizard
 ```
 
-Download history lives beside the config in `history.db` (SQLite). View it with `ytdub --history`.
+Download history lives beside the config in `history.db` (SQLite). View it with `ytdub --history`. Learned smart-pick counts live in `preferences.json`.
 
 ### Options Reference
 
@@ -436,6 +485,7 @@ Download history lives beside the config in `history.db` (SQLite). View it with 
 | `--ui-lang ar\|en` | Set and save the interface language, then exit |
 | `--theme classic\|midnight\|sand` | Set and save the interface theme |
 | `--theme-menu` | Interactive theme picker with a live preview |
+| `--smart` / `--no-smart` | Enable or disable automatic picks from learned preferences |
 | `--reset-config` | Re-run the first-run wizard, then exit |
 | `--verbose` | Print technical error details |
 
@@ -455,7 +505,7 @@ PYTHONPATH=src python -m ytdub --help
 
 The suite covers dub grouping, format strings, size estimates, retry/resume behavior,
 config migration, history storage, i18n key parity, theme palettes, responsive breakpoints,
-and the theme preview.
+the theme preview, learned preferences, and the smart-pick quality policy.
 
 ---
 
@@ -473,6 +523,7 @@ and the theme preview.
 | Output skipped | `skip_existing` is on and the file exists | Use `--overwrite`, or set `skip_existing` to `false` |
 | `--batch` exits with code 1 | At least one URL failed | Read the per-URL errors, fix them, then use `--retry ID` |
 | A theme is hard to read | The palette does not match the terminal background | Use `midnight` on dark backgrounds, `sand` on light ones, or `classic` for automatic terminal colors |
+| Smart picks stop with "preferred dub is unavailable" | The learned dub is not in this video | Use `--no-smart` for this run, pass `--lang CODE`, or pick a new dub manually to retrain |
 
 ---
 

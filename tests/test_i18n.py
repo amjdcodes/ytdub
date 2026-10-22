@@ -113,13 +113,14 @@ def test_first_run_wizard_starts_with_language_and_saves_it(tmp_path, monkeypatc
     cfg_dir = tmp_path / "ytdub"
     monkeypatch.setattr(config, "app_dir", lambda: str(cfg_dir))
 
-    con = FakeConsole(["2", "2", "y", "3", "2", "n", "mydl"])
+    con = FakeConsole(["2", "2", "y", "3", "2", "n", "n", "mydl"])
     cfg = config.first_run_wizard(con)
 
     assert cfg["ui_lang"] == "en"
     assert cfg["ui_theme"] == "midnight"
     assert cfg["max_retries"] == 3 and cfg["retry_wait_seconds"] == 2
     assert cfg["auto_update_check"] is False
+    assert cfg["smart_picks"] is False
     assert cfg["output_dir"] == "mydl"
     assert i18n.get_lang() == "en"
     saved = json.loads((cfg_dir / "config.json").read_text(encoding="utf-8"))

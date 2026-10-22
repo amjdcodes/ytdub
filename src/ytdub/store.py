@@ -132,6 +132,49 @@ def last_failed() -> dict | None:
         con.close()
 
 
+def selection_counts() -> tuple[dict[str, int], dict[str, int], str | None, int | None]:
+    """عدادات الدبلجات والجودات من الصفوف الناجحة/المستأنفة/المتخطاة.
+
+    تُستخدم لتهيئة التفضيلات مرة واحدة لمن لديه سجل قديم قبل تفعيل الاختيار الذكي.
+    """
+    try:
+        con = connect()
+    except (OSError, sqlite3.Error):
+        return {}, {}, None, None
+    try:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT lang, height, status FROM downloads ORDER BY id"
+        ).fetchall()
+    except sqlite3.Error:
+        return {}, {}, None, None
+    finally:
+        con.close()
+
+    langs: dict[str, int] = {}
+    heights: dict[str, int] = {}
+    last_lang: str | None = None
+    last_height: int | None = None
+    valid = (STATUS_SUCCESS, STATUS_RESUMED, STATUS_SKIPPED)
+    for row in rows:
+        if row["status"] not in valid:
+            continue
+        lang = (row["lang"] or "").strip()
+        if lang and lang != "all":
+            langs[lang] = langs.get(lang, 0) + 1
+            last_lang = lang
+        height = row["height"]
+        try:
+            value = int(height) if height else 0
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            key = str(value)
+            heights[key] = heights.get(key, 0) + 1
+            last_height = value
+    return langs, heights, last_lang, last_height
+
+
 def recent(limit: int = 20) -> list[dict]:
     con = connect()
     try:

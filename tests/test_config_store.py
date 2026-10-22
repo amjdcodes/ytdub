@@ -75,7 +75,7 @@ def test_download_gives_up(monkeypatch):
 
 
 def test_new_infra_defaults_present():
-    for key in ("skip_existing", "update_check_interval_hours", "ui_lang"):
+    for key in ("skip_existing", "update_check_interval_hours", "ui_lang", "smart_picks"):
         assert key in config.DEFAULTS
 
 
